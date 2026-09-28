@@ -26,8 +26,8 @@ app.post('/api/interconsultas', (req, res) => {
     const {pacienteRut, especialidadDestino, prioridadClinica, motivoDerivacion} = req.body;
 
     //validacion, si falta un campo obligatorio se rechaza la peticion
-    if (!pacienteRut || !especialidadDestino || !prioridadClinica || motivoDerivacion){
-        return res.status(400),json({
+    if (!pacienteRut || !especialidadDestino || !prioridadClinica || !motivoDerivacion){
+        return res.status(400).json({
             error: 'Faltan campos obligatorios para registrar la interconsulta.'
         });
     }
@@ -44,7 +44,7 @@ app.post('/api/interconsultas', (req, res) => {
     };
 
     //respuesta con codigo http 201 (creado exitosamente)
-    return res.reqstatus(201).json({
+    return res.status(201).json({
         mensaje: 'Interconsulta registrada exitosamente',
         data: nuevaInterconsulta
     });
