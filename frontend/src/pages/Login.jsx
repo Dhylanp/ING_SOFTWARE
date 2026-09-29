@@ -1,118 +1,205 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/axios';
 
-function Login({ onLogin }) {
-  // 1. Estados para capturar el RUT y la Clave
-  const [rut, setRut] = useState('');
-  const [clave, setClave] = useState('');
-  
-  // Estados para controlar la interfaz de usuario
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
 
-  const navigate = useNavigate();
+const Login = () => {
+    const navigate = useNavigate();
+    const [idRol, setIdRol] = useState(null);
+    const [rut, setRut] = useState('');
+    const [clave, setClave] = useState('');
+    const [respuesta, setRespuesta] = useState(null);
+    const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
+    const handleSubmit = async (e) => {
+        e.preventDefault();
 
-    // Validación básica en el cliente
-    if (!rut || !clave) {
-      setError('Por favor, ingresa tu RUT y clave.');
-      setIsLoading(false);
-      return;
-    }
+        setError('');
+        setRespuesta(null);
 
-    // Convertir el RUT a número entero (ya que tu API pide un 'int')
-    const rutEntero = parseInt(rut, 10);
-    if (isNaN(rutEntero)) {
-      setError('El RUT debe ser un número válido (sin puntos, guiones ni dígito verificador).');
-      setIsLoading(false);
-      return;
-    }
+        const payload = {
+            rut: Number(rut),
+            clave: clave,
+            rol: idRol
+        };
 
-    try {
-      // 2. Petición GET insertando las variables directamente en la URL
-      // FastAPI interpretará la ruta como: /persona/12345678/miClaveSegura
-      const response = await api.get(`/persona/${rutEntero}/${clave}`);
+        console.log("Enviando a la API:", payload);
 
-      // Si el servidor responde con datos (len(respuesta) != 0 en tu Python)
-      if (response.data && response.data.length > 0) {
-        const datosUsuario = response.data[0]; // Tomamos el primer elemento del arreglo
-        
-        // Guardamos los datos del usuario en localStorage para usarlos en otras pantallas si es necesario
-        localStorage.setItem('usuario_nombre', datosUsuario.nombrePersona);
-        localStorage.setItem('usuario_rut', datosUsuario.rut);
-        localStorage.setItem('usuario_comuna', datosUsuario.idComuna);
+        try {
+            const response = await fetch(
+                'https://21jfmx87-8000.brs.devtunnels.ms/login',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                }
+            );
 
-        // Simulamos un indicador de sesión activa para que App.jsx renderice las rutas privadas
-        localStorage.setItem('isLoggedIn', 'true'); 
-        
-        onLogin(); // Avisamos a App.jsx para actualizar el estado
-        navigate('/interconsultas'); // Redirigimos a la pantalla médica
-      } else {
-        setError('Usuario o clave incorrectos.');
-      }
-    } catch (err) {
-      // Manejo de errores basado en las respuestas de tu FastAPI
-      if (err.response?.status === 404) {
-        setError('Credenciales inválidas. Revisa tu RUT y contraseña.');
-      } else {
-        setError('Ocurrió un error en el servidor médico o problemas de conexión.');
-      }
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+            const data = await response.json();
 
-  return (
-    <div style={{ maxWidth: '400px', margin: '50px auto', padding: '20px', border: '1px solid #ccc', borderRadius: '8px' }}>
-      <h2>Sistema Médico - Iniciar Sesión</h2>
-      
-      {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
+            if (!response.ok) {
+            setError(data.detail || 'Error al iniciar sesión');
+            return;
+            }
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="rut" style={{ display: 'block', marginBottom: '5px' }}>RUT (Solo números):</label>
-          <input
-            id="rut"
-            type="text"
-            placeholder="Ej: 18432111"
-            value={rut}
-            onChange={(e) => setRut(e.target.value)}
-            disabled={isLoading}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-            required
-          />
+            localStorage.setItem('usuario', JSON.stringify(data[0]));
+
+            navigate('/interconsultas');
+
+        } catch (error) {
+            console.error("Error conectando con la API:", error);
+            setError('No se pudo conectar con el servidor');
+        }
+    };
+
+    return (
+        <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
+            <h2>Iniciar Sesión</h2>
+
+            {idRol === null ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <p>Seleccione su tipo de usuario:</p>
+
+                    <button onClick={() => setIdRol(3)}>
+                        Paciente
+                    </button>
+
+                    <button onClick={() => setIdRol(2)}>
+                        Administrador Externo
+                    </button>
+
+                    <button onClick={() => setIdRol(1)}>
+                        Administrador CESFAM
+                    </button>
+                    <p
+                    onClick={() => navigate('/SignUp')}
+                    style={{
+                        color: '#0066cc',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        marginTop: '15px'
+                    }}
+                    >
+                    ¿Desea crear Usuario como Paciente?
+                    </p>
+                </div>
+            ) : (
+                <div
+                    style={{
+                        border: '1px solid #ccc',
+                        padding: '20px',
+                        borderRadius: '8px',
+                        marginTop: '15px'
+                    }}
+                >
+                    <button
+                        onClick={() => {
+                            setIdRol(null);
+                            setError('');
+                            setRespuesta(null);
+                        }}
+                        style={{
+                            marginBottom: '15px',
+                            fontSize: '12px'
+                        }}
+                    >
+                        ← Volver a roles
+                    </button>
+
+                    <p>
+                        Ingresando como:{' '}
+                        <strong>
+                            {idRol === 3 && 'Paciente'}
+                            {idRol === 2 && 'Administrador Externo'}
+                            {idRol === 1 && 'Administrador CESFAM'}
+                        </strong>
+                    </p>
+
+                    <form
+                        onSubmit={handleSubmit}
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                        }}
+                    >
+                        <label>
+                            <p>RUT (Sin Digito Verificador)</p>
+
+                            <input
+                                type="text"
+                                value={rut}
+                                onChange={(e) => setRut(e.target.value)}
+                                required
+                            />
+                        </label>
+
+                        <label>
+                            <p>CLAVE</p>
+
+                            <input
+                                type="password"
+                                value={clave}
+                                onChange={(e) => setClave(e.target.value)}
+                                required
+                            />
+                        </label>
+                        <p
+                        onClick={() => navigate('/SignUp')}
+                        style={{
+                            color: '#0066cc',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            marginTop: '15px'
+                        }}
+                        >
+                        ¿Desea crear un usuario como Paciente?
+                        </p>
+
+                        <button
+                            type="submit"
+                            style={{ marginTop: '10px' }}
+                        >
+                            Ingresar
+                        </button>
+                    </form>
+
+                    {error && (
+                        <p style={{ color: 'red' }}>
+                            {error}
+                        </p>
+                    )}
+
+                    {respuesta && (
+                        <div style={{ marginTop: '20px' }}>
+                            <h3>Login exitoso</h3>
+
+                            <p>
+                                Nombre: {respuesta[0].nombrePersona}
+                            </p>
+
+                            <p>
+                                RUT: {respuesta[0].rut}
+                            </p>
+
+                            <p>
+                                Comuna: {respuesta[0].idComuna}
+                            </p>
+
+                            <p>
+                                Hospital: {respuesta[0].idHospital ?? 'No asignado'}
+                            </p>
+
+                            <p>
+                                CESFAM: {respuesta[0].idCesfam ?? 'No asignado'}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="clave" style={{ display: 'block', marginBottom: '5px' }}>Contraseña o Clave:</label>
-          <input
-            id="clave"
-            type="password"
-            placeholder="******"
-            value={clave}
-            onChange={(e) => setClave(e.target.value)}
-            disabled={isLoading}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-            required
-          />
-        </div>
-
-        <button 
-          type="submit" 
-          disabled={isLoading}
-          style={{ width: '100%', padding: '10px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-        >
-          {isLoading ? 'Verificando...' : 'Ingresar'}
-        </button>
-      </form>
-    </div>
-  );
-}
+    );
+};
 
 export default Login;

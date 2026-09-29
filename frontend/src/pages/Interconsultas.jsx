@@ -1,5 +1,5 @@
 import { useState } from 'react';
-//import TablaInterconsultas from './components/TablaInterconsultas';
+import TablaInterconsultas from '../components/TablaInterconsultas';
 
 export function App() {
   // estado local para guardar lo que el usuario escribe en los campos del formulario
