@@ -16,12 +16,38 @@ const SignUp = () => {
   });
 
   const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    // Auto-formateo de la fecha a dd/mm/aaaa
+    if (name === 'fechaNac') {
+      // Quitar todo lo que no sea número
+      const soloNumeros = value.replace(/\D/g, '').slice(0, 8);
+
+      let formateada = '';
+
+      if (soloNumeros.length <= 2) {
+        formateada = soloNumeros;
+      } else if (soloNumeros.length <= 4) {
+        formateada = `${soloNumeros.slice(0, 2)}/${soloNumeros.slice(2)}`;
+      } else {
+        formateada = `${soloNumeros.slice(0, 2)}/${soloNumeros.slice(2, 4)}/${soloNumeros.slice(4)}`;
+      }
+
+      setFormData({
+        ...formData,
+        fechaNac: formateada
+      });
+
+      return;
+    }
+
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
     });
   };
 
+  // Convierte dd/mm/aaaa a formato ISO YYYY-MM-DD
   const convertirFecha = (fecha) => {
     const partes = fecha.split('/');
 
@@ -31,15 +57,44 @@ const SignUp = () => {
 
     const [dia, mes, anio] = partes;
 
-    if (
-      dia.length !== 2 ||
-      mes.length !== 2 ||
-      anio.length !== 4
-    ) {
+    if (dia.length !== 2 || mes.length !== 2 || anio.length !== 4) {
       return null;
     }
 
-    return `${anio}/${mes}/${dia}`;
+    const diaNum = Number(dia);
+    const mesNum = Number(mes);
+    const anioNum = Number(anio);
+
+    if (isNaN(diaNum) || isNaN(mesNum) || isNaN(anioNum)) {
+      return null;
+    }
+
+    // Validar rango del año (por ejemplo, entre 1900 y el año actual)
+    const anioActual = new Date().getFullYear();
+    if (anioNum < 1900 || anioNum > anioActual) {
+      return null;
+    }
+
+    if (mesNum < 1 || mesNum > 12) {
+      return null;
+    }
+
+    if (diaNum < 1) {
+      return null;
+    }
+
+    // Días máximos por mes (considerando años bisiestos)
+    const esBisiesto =
+      (anioNum % 4 === 0 && anioNum % 100 !== 0) || anioNum % 400 === 0;
+
+    const diasPorMes = [31, esBisiesto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    if (diaNum > diasPorMes[mesNum - 1]) {
+      return null;
+    }
+
+    // Formato ISO que espera FastAPI
+    return `${anio}-${mes}-${dia}`;
   };
 
   const handleSubmit = async (e) => {
@@ -69,7 +124,7 @@ const SignUp = () => {
       Swal.fire({
         icon: 'error',
         title: 'Fecha incorrecta',
-        text: 'Ingrese la fecha en formato dd/mm/aaaa.'
+        text: 'Ingrese la fecha en formato dd/mm/aaaa (ej: 15/03/1990).'
       });
 
       return;
@@ -77,7 +132,7 @@ const SignUp = () => {
 
     const payload = {
       rut: Number(formData.rut),
-      dv: formData.dv,
+      dv: formData.dv.toLowerCase(),
       nombrePersona: formData.nombrePersona,
       clave: formData.clave,
       fechaNac: fechaConvertida,
@@ -101,6 +156,16 @@ const SignUp = () => {
 
       const data = await response.json();
 
+      if (data && data.codigo === 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'RUT ya registrado',
+          text: data.mensaje || 'Ya existe un Usuario asignado a ese RUT.'
+        });
+
+        return;
+      }
+
       if (!response.ok) {
         Swal.fire({
           icon: 'error',
@@ -111,14 +176,22 @@ const SignUp = () => {
         return;
       }
 
-      await Swal.fire({
-        icon: 'success',
-        title: 'Usuario creado',
-        text: 'El usuario fue creado correctamente.',
-        confirmButtonText: 'Aceptar'
-      });
+      if (data && data.codigo === 1) {
+        await Swal.fire({
+          icon: 'success',
+          title: 'Usuario creado',
+          text: data.mensaje || 'El usuario fue creado correctamente.',
+          confirmButtonText: 'Aceptar'
+        });
 
-      navigate('/login');
+        navigate('/login');
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Respuesta inesperada',
+          text: data.mensaje || 'No se pudo crear el usuario.'
+        });
+      }
 
     } catch (error) {
       console.error('Error conectando con la API:', error);
@@ -222,6 +295,7 @@ const SignUp = () => {
             onChange={handleChange}
             placeholder="dd/mm/aaaa"
             maxLength="10"
+            inputMode="numeric"
             style={{
               width: '100%',
               padding: '8px',
