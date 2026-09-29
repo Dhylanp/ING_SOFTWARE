@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import SignUp from './pages/SignUp';
 import Interconsultas from './pages/Interconsultas';
 
 function App() {
@@ -15,11 +16,14 @@ function App() {
           path="/login" 
           element={!isLoggedIn ? <Login onLogin={() => setIsLoggedIn(true)} /> : <Navigate to="/interconsultas" />}   
         />
-
+        <Route
+          path="/SignUp"
+          element={<SignUp />}
+        />
         {/* Rutas Privadas */}
         <Route 
           path="/interconsultas" 
-          element={isLoggedIn ? <Interconsultas /> : <Navigate to="/login" />} 
+          element={isLoggedIn ? <Interconsultas /> : <Navigate to="/interconsultas" />} 
         />
 
         {/* Redirección por defecto */}
