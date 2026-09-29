@@ -24,7 +24,7 @@ export default function TablaInterconsultas() {
                 const datos = await respuesta.json();
 
                 setInterconsultas(datos.data);
-            } catch (err) {
+            } catch (err) { 
                 setError(err.message);
             } finally {
                 setCargando(false);
