@@ -80,9 +80,24 @@ app.post('/api/interconsultas', (req, res) => {
 
 //endpoint HU02: obtener el listado de interconsultas
 app.get('/api/interconsultas', (req, res) => {
+    const { estado, prioridadClinica, especialidadDestino } = req.query;
+
+    let resultado = interconsultas;
+
+    if (estado) {
+        resultado = resultado.filter((item) => item.estado === estado);
+    }
+
+    if (prioridadClinica) {
+        resultado = resultado.filter((item) => item.prioridadClinica === prioridadClinica);
+    }
+
+    if (especialidadDestino) {
+        resultado = resultado.filter((item) => item.especialidadDestino === especialidadDestino);
+    }
     return res.status(200).json({
         mensaje: 'Listado de interconsultas obtenido exitosamente',
-        data: interconsultas
+        data: resultado
     });
 });
 
