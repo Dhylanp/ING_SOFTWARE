@@ -6,8 +6,9 @@ export default function Interconsultas() {
       <h2>Interconsultas</h2>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <Link to="/interconsultas/registrar">HU01A - Registrar interconsulta</Link>
-        <Link to="/interconsultas/listado">HU02 - Listado de interconsultas</Link>
+        <Link to="/interconsultas/registrar">Registrar interconsulta</Link>
+        <Link to="/interconsultas/listado">Listado de interconsultas</Link>
+        <Link to="/GestorRoles">Gestionar Roles por Usuario</Link>
       </div>
     </div>
   );

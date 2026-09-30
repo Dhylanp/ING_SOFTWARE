@@ -7,19 +7,21 @@ import SignUp from './pages/SignUp';
 import Interconsultas from './pages/Interconsultas';
 import ListadoInterconsultas from './pages/ListadoInterconsultas';
 import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
+import GestorRoles from './pages/GestorRoles';
+
+// Componentes de protección definidos fuera de App para evitar rerenders innecesarios
+const RutaPrivada = ({ children, isLoggedIn }) => {
+  return isLoggedIn ? children : <Navigate to="/login" replace />;
+};
+
+const RutaPublica = ({ children, isLoggedIn }) => {
+  return !isLoggedIn ? children : <Navigate to="/interconsultas" replace />;
+};
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
-    !!localStorage.getItem('token')
+    () => !!localStorage.getItem('token')
   );
-
-  const RutaPrivada = ({ children }) => {
-    return isLoggedIn ? children : <Navigate to="/login" replace />;
-  };
-
-  const RutaPublica = ({ children }) => {
-    return !isLoggedIn ? children : <Navigate to="/interconsultas" replace />;
-  };
 
   const handleLogin = () => {
     setIsLoggedIn(true);
@@ -32,7 +34,7 @@ function App() {
         <Route
           path="/login"
           element={
-            <RutaPublica>
+            <RutaPublica isLoggedIn={isLoggedIn}>
               <Login onLogin={handleLogin} />
             </RutaPublica>
           }
@@ -41,7 +43,7 @@ function App() {
         <Route
           path="/signup"
           element={
-            <RutaPublica>
+            <RutaPublica isLoggedIn={isLoggedIn}>
               <SignUp />
             </RutaPublica>
           }
@@ -51,8 +53,17 @@ function App() {
         <Route
           path="/interconsultas"
           element={
-            <RutaPrivada>
+            <RutaPrivada isLoggedIn={isLoggedIn}>
               <Interconsultas />
+            </RutaPrivada>
+          }
+        />
+
+        <Route
+          path="/GestorRoles"
+          element={
+            <RutaPrivada isLoggedIn={isLoggedIn}>
+              <GestorRoles />
             </RutaPrivada>
           }
         />
@@ -60,7 +71,7 @@ function App() {
         <Route
           path="/interconsultas/listado"
           element={
-            <RutaPrivada>
+            <RutaPrivada isLoggedIn={isLoggedIn}>
               <ListadoInterconsultas />
             </RutaPrivada>
           }
@@ -69,7 +80,7 @@ function App() {
         <Route
           path="/interconsultas/registrar"
           element={
-            <RutaPrivada>
+            <RutaPrivada isLoggedIn={isLoggedIn}>
               <RegistrarInterconsulta />
             </RutaPrivada>
           }
