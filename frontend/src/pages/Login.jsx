@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import LoadingOverlay from '../components/LoadingOverlay';
 
-
-const Login = () => {
+const Login = ({ onLogin }) => {
     const navigate = useNavigate();
     const [idRol, setIdRol] = useState(null);
     const [rut, setRut] = useState('');
     const [clave, setClave] = useState('');
-    const [respuesta, setRespuesta] = useState(null);
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (loading) return;
+
         setError('');
-        setRespuesta(null);
+        setLoading(true);
 
         const payload = {
             rut: Number(rut),
@@ -22,66 +24,88 @@ const Login = () => {
             rol: idRol
         };
 
-        console.log("Enviando a la API:", payload);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         try {
             const response = await fetch(
                 'https://21jfmx87-8000.brs.devtunnels.ms/login',
                 {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
                 }
             );
 
-            const data = await response.json();
+            clearTimeout(timeoutId);
 
-            if (!response.ok) {
-            setError(data.detail || 'Error al iniciar sesión');
-            return;
+            const text = await response.text();
+            let data = null;
+
+            try {
+                data = text ? JSON.parse(text) : null;
+            } catch {
+                setError(`Error del servidor (status ${response.status})`);
+                return;
             }
 
-            localStorage.setItem('usuario', JSON.stringify(data[0]));
+            if (!response.ok) {
+                const mensaje =
+                    (data && data.detail) ||
+                    (typeof data === 'string' ? data : null) ||
+                    `Error ${response.status}`;
+                setError(mensaje);
+                return;
+            }
 
+            if (data.access_token) {
+                localStorage.setItem('token', data.access_token);
+            }
+            if (data.usuario) {
+                localStorage.setItem('usuario', JSON.stringify(data.usuario));
+            }
+
+            if (onLogin) onLogin();
             navigate('/interconsultas');
 
-        } catch (error) {
-            console.error("Error conectando con la API:", error);
-            setError('No se pudo conectar con el servidor');
+        } catch (err) {
+            clearTimeout(timeoutId);
+
+            if (err.name === 'AbortError') {
+                setError('El servidor tardó demasiado. Intente de nuevo.');
+            } else {
+                setError('No se pudo conectar con el servidor');
+            }
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
         <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
+            <LoadingOverlay visible={loading} texto="Ingresando..." />
+
             <h2>Iniciar Sesión</h2>
 
             {idRol === null ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <p>Seleccione su tipo de usuario:</p>
 
-                    <button onClick={() => setIdRol(3)}>
-                        Paciente
-                    </button>
+                    <button onClick={() => setIdRol(3)}>Paciente</button>
+                    <button onClick={() => setIdRol(2)}>Administrador Externo</button>
+                    <button onClick={() => setIdRol(1)}>Administrador CESFAM</button>
 
-                    <button onClick={() => setIdRol(2)}>
-                        Administrador Externo
-                    </button>
-
-                    <button onClick={() => setIdRol(1)}>
-                        Administrador CESFAM
-                    </button>
                     <p
-                    onClick={() => navigate('/SignUp')}
-                    style={{
-                        color: '#0066cc',
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                        marginTop: '15px'
-                    }}
+                        onClick={() => navigate('/signup')}
+                        style={{
+                            color: '#0066cc',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            marginTop: '15px'
+                        }}
                     >
-                    ¿Desea crear Usuario como Paciente?
+                        ¿Desea crear Usuario como Paciente?
                     </p>
                 </div>
             ) : (
@@ -97,12 +121,8 @@ const Login = () => {
                         onClick={() => {
                             setIdRol(null);
                             setError('');
-                            setRespuesta(null);
                         }}
-                        style={{
-                            marginBottom: '15px',
-                            fontSize: '12px'
-                        }}
+                        style={{ marginBottom: '15px', fontSize: '12px' }}
                     >
                         ← Volver a roles
                     </button>
@@ -118,83 +138,60 @@ const Login = () => {
 
                     <form
                         onSubmit={handleSubmit}
-                        style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '10px'
-                        }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
                     >
                         <label>
-                            <p>RUT (Sin Digito Verificador)</p>
-
+                            <p>RUT (Sin Dígito Verificador)</p>
                             <input
                                 type="text"
                                 value={rut}
                                 onChange={(e) => setRut(e.target.value)}
                                 required
+                                disabled={loading}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px',
+                                    boxSizing: 'border-box'
+                                }}
                             />
                         </label>
 
                         <label>
                             <p>CLAVE</p>
-
                             <input
                                 type="password"
                                 value={clave}
                                 onChange={(e) => setClave(e.target.value)}
                                 required
+                                disabled={loading}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px',
+                                    boxSizing: 'border-box'
+                                }}
                             />
                         </label>
-                        <p
-                        onClick={() => navigate('/SignUp')}
-                        style={{
-                            color: '#0066cc',
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                            marginTop: '15px'
-                        }}
-                        >
-                        ¿Desea crear un usuario como Paciente?
-                        </p>
 
                         <button
                             type="submit"
-                            style={{ marginTop: '10px' }}
+                            disabled={loading}
+                            style={{
+                                marginTop: '10px',
+                                padding: '10px',
+                                backgroundColor: loading ? '#999' : '#0056b3',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontWeight: 'bold',
+                                cursor: loading ? 'not-allowed' : 'pointer'
+                            }}
                         >
-                            Ingresar
+                            {loading ? 'Ingresando...' : 'Ingresar'}
                         </button>
                     </form>
 
                     {error && (
-                        <p style={{ color: 'red' }}>
-                            {error}
-                        </p>
-                    )}
-
-                    {respuesta && (
-                        <div style={{ marginTop: '20px' }}>
-                            <h3>Login exitoso</h3>
-
-                            <p>
-                                Nombre: {respuesta[0].nombrePersona}
-                            </p>
-
-                            <p>
-                                RUT: {respuesta[0].rut}
-                            </p>
-
-                            <p>
-                                Comuna: {respuesta[0].idComuna}
-                            </p>
-
-                            <p>
-                                Hospital: {respuesta[0].idHospital ?? 'No asignado'}
-                            </p>
-
-                            <p>
-                                CESFAM: {respuesta[0].idCesfam ?? 'No asignado'}
-                            </p>
-                        </div>
+                        <p style={{ color: 'red', marginTop: '10px' }}>{error}</p>
                     )}
                 </div>
             )}
