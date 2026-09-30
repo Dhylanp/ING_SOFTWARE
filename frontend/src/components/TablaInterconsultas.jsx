@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-export default function TablaInterconsultas() {
+export default function TablaInterconsultas({ filtros }) {
     //estado para almacenar la lista de interconsultas del backend
     const [interconsultas, setInterconsultas] = useState([]);
     //estados para manejar la experiencia de usuario
@@ -15,7 +15,12 @@ export default function TablaInterconsultas() {
                 setError(null);
 
                 //peticion GET al endpoint de la HU02
-                const respuesta = await fetch('https://21jfmx87-8000.brs.devtunnels.ms/formulario/0/0/0/0/0');
+                const respuesta = await fetch(`https://21jfmx87-8000.brs.devtunnels.ms/formulario/0/0/0/${filtros.estado}/${filtros.prioridad}`);
+
+                if (respuesta.status === 404) {
+                    setInterconsultas([]);
+                    return;
+                }
 
                 if (!respuesta.ok) {
                     throw new Error('Error al consultar el listado de interconsultas.');
@@ -32,7 +37,7 @@ export default function TablaInterconsultas() {
         };
 
         obtenerInterconsultas();
-    }, []);
+    }, [filtros]);
 
     //renderizado condicional si esta cargando
     if (cargando) {
