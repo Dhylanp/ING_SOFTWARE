@@ -10,6 +10,20 @@ const Login = ({ onLogin }) => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const getNombreRol = (rol) => {
+        switch (rol) {
+            case 1: return 'Administrador CESFAM';
+            case 2: return 'Administrador Externo';
+            case 3: return 'Paciente';
+            default: return '';
+        }
+    };
+
+    const handleRutChange = (e) => {
+        const valor = e.target.value.replace(/\D/g, '');
+        setRut(valor);
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -29,7 +43,7 @@ const Login = ({ onLogin }) => {
 
         try {
             const response = await fetch(
-                'https://21jfmx87-8000.brs.devtunnels.ms/login',
+                'https://ingsoftware-production-4899.up.railway.app/login',
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -51,18 +65,28 @@ const Login = ({ onLogin }) => {
             }
 
             if (!response.ok) {
-                const mensaje =
-                    (data && data.detail) ||
-                    (typeof data === 'string' ? data : null) ||
-                    `Error ${response.status}`;
+                let mensaje = `Error ${response.status}`;
+
+                if (data) {
+                    if (typeof data.detail === 'string') {
+                        mensaje = data.detail;
+                    } else if (Array.isArray(data.detail)) {
+                        // Errores de validación de FastAPI
+                        mensaje = data.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
+                    } else if (typeof data === 'string') {
+                        mensaje = data;
+                    }
+                }
+
                 setError(mensaje);
                 return;
             }
 
-            if (data.access_token) {
+            // Guardar token y usuario
+            if (data?.access_token) {
                 localStorage.setItem('token', data.access_token);
             }
-            if (data.usuario) {
+            if (data?.usuario) {
                 localStorage.setItem('usuario', JSON.stringify(data.usuario));
             }
 
@@ -82,6 +106,13 @@ const Login = ({ onLogin }) => {
         }
     };
 
+    const volverARoles = () => {
+        setIdRol(null);
+        setError('');
+        setRut('');
+        setClave('');
+    };
+
     return (
         <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
             <LoadingOverlay visible={loading} texto="Ingresando..." />
@@ -92,9 +123,9 @@ const Login = ({ onLogin }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <p>Seleccione su tipo de usuario:</p>
 
-                    <button onClick={() => setIdRol(3)}>Paciente</button>
-                    <button onClick={() => setIdRol(2)}>Administrador Externo</button>
-                    <button onClick={() => setIdRol(1)}>Administrador CESFAM</button>
+                    <button type="button" onClick={() => setIdRol(3)}>Paciente</button>
+                    <button type="button" onClick={() => setIdRol(2)}>Administrador Externo</button>
+                    <button type="button" onClick={() => setIdRol(1)}>Administrador CESFAM</button>
 
                     <p
                         onClick={() => navigate('/signup')}
@@ -118,10 +149,9 @@ const Login = ({ onLogin }) => {
                     }}
                 >
                     <button
-                        onClick={() => {
-                            setIdRol(null);
-                            setError('');
-                        }}
+                        type="button"
+                        onClick={volverARoles}
+                        disabled={loading}
                         style={{ marginBottom: '15px', fontSize: '12px' }}
                     >
                         ← Volver a roles
@@ -129,11 +159,7 @@ const Login = ({ onLogin }) => {
 
                     <p>
                         Ingresando como:{' '}
-                        <strong>
-                            {idRol === 3 && 'Paciente'}
-                            {idRol === 2 && 'Administrador Externo'}
-                            {idRol === 1 && 'Administrador CESFAM'}
-                        </strong>
+                        <strong>{getNombreRol(idRol)}</strong>
                     </p>
 
                     <form
@@ -144,10 +170,12 @@ const Login = ({ onLogin }) => {
                             <p>RUT (Sin Dígito Verificador)</p>
                             <input
                                 type="text"
+                                inputMode="numeric"
                                 value={rut}
-                                onChange={(e) => setRut(e.target.value)}
+                                onChange={handleRutChange}
                                 required
                                 disabled={loading}
+                                placeholder="Ej: 12345678"
                                 style={{
                                     width: '100%',
                                     padding: '8px',
