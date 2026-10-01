@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 
+const API_URL = 'https://ingsoftware-production-4899.up.railway.app';
+
 const SignUp = () => {
   const navigate = useNavigate();
 
@@ -19,44 +21,76 @@ const SignUp = () => {
 
   const [regiones, setRegiones] = useState([]);
   const [comunas, setComunas] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingRegiones, setLoadingRegiones] = useState(false);
+  const [loadingComunas, setLoadingComunas] = useState(false);
+  const [loadingSubmit, setLoadingSubmit] = useState(false);
 
+  const loading = loadingRegiones || loadingComunas || loadingSubmit;
+
+  // Cargar regiones al montar
   useEffect(() => {
     const cargarRegiones = async () => {
-      setLoading(true);
+      setLoadingRegiones(true);
       try {
-        const res = await fetch('https://21jfmx87-8000.brs.devtunnels.ms/region');
-        if (!res.ok) return;
+        const url = `${API_URL}/region`;
+        console.log('[SignUp] Fetch regiones:', url);
+        const res = await fetch(url);
+        console.log('[SignUp] Status regiones:', res.status);
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('[SignUp] Error regiones:', res.status, errorText);
+          Swal.fire({
+            icon: 'error',
+            title: 'Error al cargar regiones',
+            text: `El servidor respondió con estado ${res.status}.`
+          });
+          return;
+        }
+
         const data = await res.json();
-        setRegiones(data);
+        console.log('[SignUp] Regiones recibidas:', data);
+        setRegiones(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.error(err);
+        console.error('[SignUp] Error de red regiones:', err);
+        Swal.fire({
+          icon: 'error',
+          title: 'Error de conexión',
+          text: 'No se pudieron cargar las regiones.'
+        });
       } finally {
-        setLoading(false);
+        setLoadingRegiones(false);
       }
     };
     cargarRegiones();
   }, []);
 
+  // Cargar comunas cuando cambia la región
   useEffect(() => {
     const cargarComunas = async () => {
-      setLoading(true);
+      setLoadingComunas(true);
       try {
         const regionParam = formData.idRegion === '' ? 0 : formData.idRegion;
-        const res = await fetch(
-          `https://21jfmx87-8000.brs.devtunnels.ms/comuna/${regionParam}`
-        );
+        const url = `${API_URL}/comuna/${regionParam}`;
+        console.log('[SignUp] Fetch comunas:', url);
+        const res = await fetch(url);
+        console.log('[SignUp] Status comunas:', res.status);
+
         if (!res.ok) {
+          const errorText = await res.text();
+          console.error('[SignUp] Error comunas:', res.status, errorText);
           setComunas([]);
           return;
         }
+
         const data = await res.json();
-        setComunas(data);
+        console.log('[SignUp] Comunas recibidas:', data);
+        setComunas(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.error(err);
+        console.error('[SignUp] Error de red comunas:', err);
         setComunas([]);
       } finally {
-        setLoading(false);
+        setLoadingComunas(false);
       }
     };
     cargarComunas();
@@ -160,19 +194,16 @@ const SignUp = () => {
       idComuna: Number(formData.idComuna)
     };
 
-    setLoading(true);
+    setLoadingSubmit(true);
     try {
-      const response = await fetch(
-        'https://21jfmx87-8000.brs.devtunnels.ms/persona',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }
-      );
+      const response = await fetch(`${API_URL}/persona`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
       const data = await response.json();
-      setLoading(false);
+      setLoadingSubmit(false);
 
       if (data && data.codigo === 0) {
         Swal.fire({
@@ -202,7 +233,7 @@ const SignUp = () => {
         navigate('/login');
       }
     } catch (error) {
-      setLoading(false);
+      setLoadingSubmit(false);
       Swal.fire({
         icon: 'error',
         title: 'Error de conexión',
@@ -315,6 +346,11 @@ const SignUp = () => {
               </option>
             ))}
           </select>
+          {regiones.length === 0 && !loadingRegiones && (
+            <small style={{ color: '#c00' }}>
+              No se pudieron cargar las regiones.
+            </small>
+          )}
         </div>
 
         <div style={{ marginBottom: '20px' }}>
@@ -332,6 +368,11 @@ const SignUp = () => {
               </option>
             ))}
           </select>
+          {comunas.length === 0 && !loadingComunas && (
+            <small style={{ color: '#c00' }}>
+              No se pudieron cargar las comunas.
+            </small>
+          )}
         </div>
 
         <button
@@ -348,7 +389,7 @@ const SignUp = () => {
             fontWeight: 'bold'
           }}
         >
-          {loading ? 'Cargando...' : 'Crear Usuario'}
+          {loadingSubmit ? 'Cargando...' : 'Crear Usuario'}
         </button>
       </form>
 
