@@ -8,6 +8,12 @@ const nombresEstado = {
     4: 'Enviada',
 };
 
+const nombresPrioridad = {
+    1: 'Alta',
+    2: 'Media',
+    3: 'Baja',
+};
+
 export default function TablaInterconsultas({ filtros }) {
     //estado para almacenar la lista de interconsultas del backend
     const [interconsultas, setInterconsultas] = useState([]);
@@ -22,16 +28,13 @@ export default function TablaInterconsultas({ filtros }) {
                 setCargando(true);
                 setError(null);
 
-                //peticion GET al endpoint de la HU02
-                const respuesta = await fetch('https://ingsoftware-production-4899.up.railway.app/formulario/0/0/0/0/0');
-
-                if (!respuesta.ok) {
-                    throw new Error('Error al consultar el listado de interconsultas.');
-                }
-
-                const datos = await respuesta.json();
-
+                //la API solo filtra prioridad con texto y la columna es numerica, asi que se filtra aqui
+                const respuesta = await api.get(`/formulario/0/0/0/${filtros.estado}/0`);
+                const datos = filtros.prioridad === 0
+                    ? respuesta.data
+                    : respuesta.data.filter((item) => Number(item.prioridadClinica) === filtros.prioridad);
                 setInterconsultas(datos);
+
             } catch (err) {
                 if (err.response?.status === 404) {
                     setInterconsultas([]);
@@ -84,11 +87,11 @@ export default function TablaInterconsultas({ filtros }) {
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>#{item.idFormulario}</td>
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>{item.descripcion}</td>
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>{item.fechaInicio}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idPersona}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idCesfam}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idHospital}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{nombresEstado[item.idEstado] ?? item.idEstado}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.prioridadClinica}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombrePersona}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreComuna}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreHospital}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreEstado}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{nombresPrioridad[item.prioridadClinica] ?? item.prioridadClinica}</td>
                             </tr>
                         ))}
                     </tbody>
