@@ -1,29 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
-
-const API = 'https://21jfmx87-8000.brs.devtunnels.ms';
-
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  try {
-    const response = await api.post('/login', { email, password });
-    
-    // 1. Guardar token
-    localStorage.setItem('token', response.data.token);
-    
-    // 2. OBLIGATORIO: Notificar a App.jsx para cambiar isLoggedIn a true
-    if (onLogin) {
-      onLogin();
-    }
-
-    // 3. Redirigir
-    navigate('/GestorRoles');
-  } catch (error) {
-    console.error("Error al iniciar sesión", error);
-  }
-};
+import api from '../api/axios';
 
 const Accesos = () => {
   const [accesos, setAccesos] = useState([]);
@@ -51,37 +29,51 @@ const Accesos = () => {
     setLoading(true);
 
     try {
-      const [
-        personasRes,
-        rolesRes,
-        cesfamsRes,
-        hospitalesRes
-      ] = await Promise.all([
-        fetch(`${API}/persona`),
-        fetch(`${API}/rol`),
-        fetch(`${API}/cesfam`),
-        fetch(`${API}/hospital`)
-      ]);
+      // NOTA: el backend actual NO tiene GET /persona ni GET /rol.
+      // Se intentan de todos modos; si fallan, se dejan vacíos.
+      const [personasRes, rolesRes, cesfamsRes, hospitalesRes] =
+        await Promise.allSettled([
+          api.get('/persona'),
+          api.get('/rol'),
+          api.get('/cesfam/0'),
+          api.get('/hospital/0')
+        ]);
 
-      if (personasRes.ok) {
-        setPersonas(await personasRes.json());
+      if (personasRes.status === 'fulfilled') {
+        setPersonas(
+          Array.isArray(personasRes.value.data) ? personasRes.value.data : []
+        );
+      } else {
+        console.warn('GET /persona no disponible en el backend:', personasRes.reason);
+        setPersonas([]);
       }
 
-      if (rolesRes.ok) {
-        setRoles(await rolesRes.json());
+      if (rolesRes.status === 'fulfilled') {
+        setRoles(Array.isArray(rolesRes.value.data) ? rolesRes.value.data : []);
+      } else {
+        console.warn('GET /rol no disponible en el backend:', rolesRes.reason);
+        setRoles([]);
       }
 
-      if (cesfamsRes.ok) {
-        setCesfams(await cesfamsRes.json());
+      if (cesfamsRes.status === 'fulfilled') {
+        setCesfams(
+          Array.isArray(cesfamsRes.value.data) ? cesfamsRes.value.data : []
+        );
+      } else {
+        console.warn('GET /cesfam/0 falló:', cesfamsRes.reason);
+        setCesfams([]);
       }
 
-      if (hospitalesRes.ok) {
-        setHospitales(await hospitalesRes.json());
+      if (hospitalesRes.status === 'fulfilled') {
+        setHospitales(
+          Array.isArray(hospitalesRes.value.data) ? hospitalesRes.value.data : []
+        );
+      } else {
+        console.warn('GET /hospital/0 falló:', hospitalesRes.reason);
+        setHospitales([]);
       }
-
     } catch (error) {
       console.error(error);
-
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -97,18 +89,10 @@ const Accesos = () => {
 
     try {
       // 0 = todos
-      const res = await fetch(`${API}/Acceso/0/0/0/0`);
-
-      if (!res.ok) {
-        throw new Error('No se pudieron obtener los accesos');
-      }
-
-      const data = await res.json();
-      setAccesos(data);
-
+      const res = await api.get('/Acceso/0/0/0/0');
+      setAccesos(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error(error);
-
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -121,7 +105,6 @@ const Accesos = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-
     setFormData({
       ...formData,
       [name]: value
@@ -130,28 +113,12 @@ const Accesos = () => {
 
   const handleTipoCentro = (e) => {
     const value = e.target.value;
-
     setTipoCentro(value);
-
-    if (value === 'cesfam') {
-      setFormData({
-        ...formData,
-        idCesfam: '',
-        idHospital: ''
-      });
-    } else if (value === 'hospital') {
-      setFormData({
-        ...formData,
-        idCesfam: '',
-        idHospital: ''
-      });
-    } else {
-      setFormData({
-        ...formData,
-        idCesfam: '',
-        idHospital: ''
-      });
-    }
+    setFormData({
+      ...formData,
+      idCesfam: '',
+      idHospital: ''
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -203,16 +170,8 @@ const Accesos = () => {
     }
 
     const payload = {
-      idCesfam:
-        tipoCentro === 'cesfam'
-          ? Number(formData.idCesfam)
-          : 0,
-
-      idHospital:
-        tipoCentro === 'hospital'
-          ? Number(formData.idHospital)
-          : 0,
-
+      idCesfam: tipoCentro === 'cesfam' ? Number(formData.idCesfam) : 0,
+      idHospital: tipoCentro === 'hospital' ? Number(formData.idHospital) : 0,
       idPersona: Number(formData.idPersona),
       idRol: Number(formData.idRol)
     };
@@ -220,24 +179,8 @@ const Accesos = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API}/acceso`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: data.detail || 'No se pudo crear el acceso.'
-        });
-        return;
-      }
+      const response = await api.post('/acceso', payload);
+      const data = response.data;
 
       Swal.fire({
         icon: 'success',
@@ -251,18 +194,19 @@ const Accesos = () => {
         idCesfam: '',
         idHospital: ''
       });
-
       setTipoCentro('');
 
       await cargarAccesos();
-
     } catch (error) {
       console.error(error);
-
+      const detalle = error.response?.data?.detail;
       Swal.fire({
         icon: 'error',
-        title: 'Error de conexión',
-        text: 'No se pudo conectar con el servidor.'
+        title: 'Error',
+        text:
+          typeof detalle === 'string'
+            ? detalle
+            : 'No se pudo crear el acceso.'
       });
     } finally {
       setLoading(false);
@@ -278,10 +222,7 @@ const Accesos = () => {
         fontFamily: 'Arial, sans-serif'
       }}
     >
-      <LoadingOverlay
-        visible={loading}
-        texto="Cargando..."
-      />
+      <LoadingOverlay visible={loading} texto="Cargando..." />
 
       <h2>Administración de Accesos</h2>
 
@@ -297,89 +238,63 @@ const Accesos = () => {
         <h3>Crear Acceso</h3>
 
         <form onSubmit={handleSubmit}>
-
           {/* PERSONA */}
           <div style={{ marginBottom: '15px' }}>
             <label>Persona:</label>
-
             <select
               name="idPersona"
               value={formData.idPersona}
               onChange={handleChange}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box'
-              }}
+              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
             >
-              <option value="">
-                Seleccione una persona
-              </option>
-
+              <option value="">Seleccione una persona</option>
               {personas.map((persona) => (
-                <option
-                  key={persona.idPersona}
-                  value={persona.idPersona}
-                >
+                <option key={persona.idPersona} value={persona.idPersona}>
                   {persona.nombrePersona} - RUT {persona.rut}-{persona.dv}
                 </option>
               ))}
             </select>
+            {personas.length === 0 && (
+              <small style={{ color: '#c00' }}>
+                No se pudieron cargar las personas (endpoint GET /persona no existe en el backend).
+              </small>
+            )}
           </div>
 
           {/* ROL */}
           <div style={{ marginBottom: '15px' }}>
             <label>Rol:</label>
-
             <select
               name="idRol"
               value={formData.idRol}
               onChange={handleChange}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box'
-              }}
+              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
             >
-              <option value="">
-                Seleccione un rol
-              </option>
-
+              <option value="">Seleccione un rol</option>
               {roles.map((rol) => (
-                <option
-                  key={rol.idRol}
-                  value={rol.idRol}
-                >
+                <option key={rol.idRol} value={rol.idRol}>
                   {rol.nombreRol}
                 </option>
               ))}
             </select>
+            {roles.length === 0 && (
+              <small style={{ color: '#c00' }}>
+                No se pudieron cargar los roles (endpoint GET /rol no existe en el backend).
+              </small>
+            )}
           </div>
 
           {/* TIPO DE CENTRO */}
           <div style={{ marginBottom: '15px' }}>
             <label>Tipo de Centro:</label>
-
             <select
               value={tipoCentro}
               onChange={handleTipoCentro}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box'
-              }}
+              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
             >
-              <option value="">
-                Seleccione un tipo
-              </option>
-
-              <option value="cesfam">
-                CESFAM
-              </option>
-
-              <option value="hospital">
-                Hospital
-              </option>
+              <option value="">Seleccione un tipo</option>
+              <option value="cesfam">CESFAM</option>
+              <option value="hospital">Hospital</option>
             </select>
           </div>
 
@@ -387,30 +302,24 @@ const Accesos = () => {
           {tipoCentro === 'cesfam' && (
             <div style={{ marginBottom: '15px' }}>
               <label>CESFAM:</label>
-
               <select
                 name="idCesfam"
                 value={formData.idCesfam}
                 onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  boxSizing: 'border-box'
-                }}
+                style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
               >
-                <option value="">
-                  Seleccione un CESFAM
-                </option>
-
+                <option value="">Seleccione un CESFAM</option>
                 {cesfams.map((cesfam) => (
-                  <option
-                    key={cesfam.idCesfam}
-                    value={cesfam.idCesfam}
-                  >
+                  <option key={cesfam.idCesfam} value={cesfam.idCesfam}>
                     {cesfam.nombreCesfam}
                   </option>
                 ))}
               </select>
+              {cesfams.length === 0 && (
+                <small style={{ color: '#c00' }}>
+                  No se pudieron cargar los CESFAM.
+                </small>
+              )}
             </div>
           )}
 
@@ -418,30 +327,24 @@ const Accesos = () => {
           {tipoCentro === 'hospital' && (
             <div style={{ marginBottom: '15px' }}>
               <label>Hospital:</label>
-
               <select
                 name="idHospital"
                 value={formData.idHospital}
                 onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  boxSizing: 'border-box'
-                }}
+                style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
               >
-                <option value="">
-                  Seleccione un Hospital
-                </option>
-
+                <option value="">Seleccione un Hospital</option>
                 {hospitales.map((hospital) => (
-                  <option
-                    key={hospital.idHospital}
-                    value={hospital.idHospital}
-                  >
+                  <option key={hospital.idHospital} value={hospital.idHospital}>
                     {hospital.nombreHospital}
                   </option>
                 ))}
               </select>
+              {hospitales.length === 0 && (
+                <small style={{ color: '#c00' }}>
+                  No se pudieron cargar los hospitales.
+                </small>
+              )}
             </div>
           )}
 
@@ -461,7 +364,6 @@ const Accesos = () => {
           >
             {loading ? 'Creando...' : 'Crear Acceso'}
           </button>
-
         </form>
       </div>
 
@@ -470,21 +372,10 @@ const Accesos = () => {
         <h3>Accesos Existentes</h3>
 
         {accesos.length === 0 ? (
-          <p>
-            No existen accesos registrados.
-          </p>
+          <p>No existen accesos registrados.</p>
         ) : (
-          <div
-            style={{
-              overflowX: 'auto'
-            }}
-          >
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse'
-              }}
-            >
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   <th style={estiloTh}>Estado</th>
@@ -498,29 +389,13 @@ const Accesos = () => {
               <tbody>
                 {accesos.map((acceso, index) => (
                   <tr key={index}>
-
                     <td style={estiloTd}>
-                      {acceso.activo === 'S'
-                        ? 'Activo'
-                        : 'Inactivo'}
+                      {acceso.activo === 'S' ? 'Activo' : 'Inactivo'}
                     </td>
-
-                    <td style={estiloTd}>
-                      {acceso.nombrePersona}
-                    </td>
-
-                    <td style={estiloTd}>
-                      {acceso.idCentro}
-                    </td>
-
-                    <td style={estiloTd}>
-                      {acceso.nombreCentro}
-                    </td>
-
-                    <td style={estiloTd}>
-                      {acceso.tipoCentro}
-                    </td>
-
+                    <td style={estiloTd}>{acceso.nombrePersona}</td>
+                    <td style={estiloTd}>{acceso.idCentro}</td>
+                    <td style={estiloTd}>{acceso.nombreCentro}</td>
+                    <td style={estiloTd}>{acceso.tipoCentro}</td>
                   </tr>
                 ))}
               </tbody>

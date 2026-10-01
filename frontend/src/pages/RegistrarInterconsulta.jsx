@@ -12,6 +12,7 @@ const formularioVacio = {
 export default function RegistrarInterconsulta() {
     const [formData, setFormData] = useState(formularioVacio);
     const [hospitales, setHospitales] = useState([]);
+    const [cargandoHospitales, setCargandoHospitales] = useState(false);
 
     const [mensajeExito, setMensajeExito] = useState('');
     const [mensajeError, setMensajeError] = useState('');
@@ -19,11 +20,41 @@ export default function RegistrarInterconsulta() {
     // carga la lista de hospitales al abrir la pantalla
     useEffect(() => {
         const obtenerHospitales = async () => {
+            setCargandoHospitales(true);
             try {
-                const respuesta = await api.get('/hospital/0');
-                setHospitales(respuesta.data);
+                const url = '/hospital/0';
+                console.log('[RegistrarInterconsulta] GET', url, 'baseURL:', api.defaults.baseURL);
+
+                const respuesta = await api.get(url);
+                console.log('[RegistrarInterconsulta] Status:', respuesta.status);
+                console.log('[RegistrarInterconsulta] Data hospitales:', respuesta.data);
+
+                const lista = Array.isArray(respuesta.data) ? respuesta.data : [];
+                setHospitales(lista);
+
+                if (lista.length === 0) {
+                    setMensajeError('El servidor no devolvió hospitales. Verifique que la tabla "hospital" tenga datos.');
+                }
             } catch (err) {
-                setMensajeError('No se pudo cargar la lista de hospitales.');
+                console.error('[RegistrarInterconsulta] Error hospitales:', err);
+                console.error('[RegistrarInterconsulta] Response:', err.response);
+                console.error('[RegistrarInterconsulta] Message:', err.message);
+
+                if (err.response) {
+                    setMensajeError(
+                        `Error del servidor (${err.response.status}): ${
+                            typeof err.response.data?.detail === 'string'
+                                ? err.response.data.detail
+                                : 'No se pudo cargar la lista de hospitales.'
+                        }`
+                    );
+                } else if (err.request) {
+                    setMensajeError('No hubo respuesta del servidor. Verifique la URL del backend y CORS.');
+                } else {
+                    setMensajeError('Error al configurar la petición: ' + err.message);
+                }
+            } finally {
+                setCargandoHospitales(false);
             }
         };
 
@@ -119,15 +150,23 @@ export default function RegistrarInterconsulta() {
                         name="idHospital"
                         value={formData.idHospital}
                         onChange={handleChange}
+                        disabled={cargandoHospitales}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     >
-                        <option value="">Seleccione un hospital</option>
+                        <option value="">
+                            {cargandoHospitales ? 'Cargando hospitales...' : 'Seleccione un hospital'}
+                        </option>
                         {hospitales.map((h) => (
                             <option key={h.idHospital} value={h.idHospital}>
                                 {h.nombreHospital}
                             </option>
                         ))}
                     </select>
+                    {!cargandoHospitales && hospitales.length === 0 && (
+                        <small style={{ color: '#c00' }}>
+                            No hay hospitales disponibles.
+                        </small>
+                    )}
                 </div>
 
                 {/* selector de prioridad clinica */}

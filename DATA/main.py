@@ -173,6 +173,57 @@ def creaPersona(persona: personaEntrada):
             conexion.close()
 
 
+@app.get("/persona")
+def obtienePersonas():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idPersona, rut, dv, nombrePersona, fechaNac, calle, idComuna "
+            "FROM persona ORDER BY nombrePersona"
+        )
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron personas")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/rol")
+def obtieneRoles():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT idRol, nombreRol FROM rol ORDER BY idRol")
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron roles")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
 @app.post("/formulario", status_code=201)
 def creaFormulario(formulario: formularioEntrada):
     conexion = None
@@ -532,15 +583,19 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
         query = """
             SELECT
                 a.Activo AS activo,
+                a.idRol AS idRol,
                 CASE
+                    WHEN a.idRol = 3 THEN 'x'
                     WHEN a.idCesfam != 0 THEN a.idCesfam
                     ELSE a.idHospital
                 END AS idCentro,
                 CASE
+                    WHEN a.idRol = 3 THEN 'x'
                     WHEN a.idCesfam != 0 THEN c.nombreCesfam
                     ELSE h.nombreHospital
                 END AS nombreCentro,
                 CASE
+                    WHEN a.idRol = 3 THEN 'x'
                     WHEN a.idCesfam != 0 THEN 'Cesfam'
                     ELSE 'Hospital'
                 END AS tipoCentro,
