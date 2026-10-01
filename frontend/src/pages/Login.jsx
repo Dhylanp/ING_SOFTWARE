@@ -1,23 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import LoadingOverlay from '../components/LoadingOverlay';
+import { useAuth, getNombreRol, getDescripcionRol } from '../context/AuthContext';
 
-const Login = ({ onLogin }) => {
+const Login = () => {
     const navigate = useNavigate();
+    const { iniciarSesion } = useAuth();
+
     const [idRol, setIdRol] = useState(null);
     const [rut, setRut] = useState('');
     const [clave, setClave] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-
-    const getNombreRol = (rol) => {
-        switch (rol) {
-            case 1: return 'Administrador CESFAM';
-            case 2: return 'Administrador Externo';
-            case 3: return 'Paciente';
-            default: return '';
-        }
-    };
 
     const handleRutChange = (e) => {
         const valor = e.target.value.replace(/\D/g, '');
@@ -26,81 +20,16 @@ const Login = ({ onLogin }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
         if (loading) return;
 
         setError('');
         setLoading(true);
 
-        const payload = {
-            rut: Number(rut),
-            clave: clave,
-            rol: idRol
-        };
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
         try {
-            const response = await fetch(
-                'https://ingsoftware-production-4899.up.railway.app/login',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                    signal: controller.signal
-                }
-            );
-
-            clearTimeout(timeoutId);
-
-            const text = await response.text();
-            let data = null;
-
-            try {
-                data = text ? JSON.parse(text) : null;
-            } catch {
-                setError(`Error del servidor (status ${response.status})`);
-                return;
-            }
-
-            if (!response.ok) {
-                let mensaje = `Error ${response.status}`;
-
-                if (data) {
-                    if (typeof data.detail === 'string') {
-                        mensaje = data.detail;
-                    } else if (Array.isArray(data.detail)) {
-                        // Errores de validación de FastAPI
-                        mensaje = data.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
-                    } else if (typeof data === 'string') {
-                        mensaje = data;
-                    }
-                }
-
-                setError(mensaje);
-                return;
-            }
-
-            // Guardar token y usuario
-            if (data?.access_token) {
-                localStorage.setItem('token', data.access_token);
-            }
-            if (data?.usuario) {
-                localStorage.setItem('usuario', JSON.stringify(data.usuario));
-            }
-
-            if (onLogin) onLogin();
+            await iniciarSesion({ rut, clave, rol: idRol });
             navigate('/interconsultas');
-
         } catch (err) {
-            clearTimeout(timeoutId);
-
-            if (err.name === 'AbortError') {
-                setError('El servidor tardó demasiado. Intente de nuevo.');
-            } else {
-                setError('No se pudo conectar con el servidor');
-            }
+            setError(err.message || 'No se pudo iniciar sesión');
         } finally {
             setLoading(false);
         }
@@ -123,9 +52,10 @@ const Login = ({ onLogin }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <p>Seleccione su tipo de usuario:</p>
 
-                    <button type="button" onClick={() => setIdRol(3)}>Paciente</button>
-                    <button type="button" onClick={() => setIdRol(2)}>Administrador Externo</button>
-                    <button type="button" onClick={() => setIdRol(1)}>Administrador CESFAM</button>
+                    <BotonRol onClick={() => setIdRol(3)} idRol={3} />
+                    <BotonRol onClick={() => setIdRol(2)} idRol={2} />
+                    <BotonRol onClick={() => setIdRol(1)} idRol={1} />
+                    <BotonRol onClick={() => setIdRol(4)} idRol={4} />
 
                     <p
                         onClick={() => navigate('/signup')}
@@ -160,6 +90,9 @@ const Login = ({ onLogin }) => {
                     <p>
                         Ingresando como:{' '}
                         <strong>{getNombreRol(idRol)}</strong>
+                    </p>
+                    <p style={{ fontSize: '12px', color: '#666', marginTop: '-8px' }}>
+                        {getDescripcionRol(idRol)}
                     </p>
 
                     <form
@@ -216,6 +149,20 @@ const Login = ({ onLogin }) => {
                         >
                             {loading ? 'Ingresando...' : 'Ingresar'}
                         </button>
+
+                        <p
+                            onClick={() => navigate('/signup')}
+                            style={{
+                                color: '#0066cc',
+                                cursor: 'pointer',
+                                textAlign: 'center',
+                                marginTop: '10px',
+                                marginBottom: 0,
+                                fontSize: '14px'
+                            }}
+                        >
+                            Registrarse
+                        </p>
                     </form>
 
                     {error && (
@@ -226,5 +173,27 @@ const Login = ({ onLogin }) => {
         </div>
     );
 };
+
+const BotonRol = ({ onClick, idRol }) => (
+    <button
+        type="button"
+        onClick={onClick}
+        style={{
+            padding: '10px',
+            backgroundColor: '#f7f9fc',
+            border: '1px solid #c7daf5',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            textAlign: 'left'
+        }}
+    >
+        <div style={{ fontWeight: 'bold', color: '#0056b3' }}>
+            {getNombreRol(idRol)}
+        </div>
+        <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+            {getDescripcionRol(idRol)}
+        </div>
+    </button>
+);
 
 export default Login;
