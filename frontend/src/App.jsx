@@ -1,160 +1,103 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
 
-export function App() {
-  //stado local para guardar lo que el usuario escribe en los campos del formulario
-  const [formData, setFormData] = useState({
-    pacienteRut: '',
-    especialidadDestino: '',
-    prioridadClinica: 'Media',
-    motivoDerivacion: '',
-  });
+// Importar páginas desde ./pages/
+import Login from './pages/Login';
+import SignUp from './pages/SignUp';
+import Interconsultas from './pages/Interconsultas';
+import ListadoInterconsultas from './pages/ListadoInterconsultas';
+import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
+import GestorRoles from './pages/GestorRoles';
 
-  //estados para mostrar mensajes de confirmacion o error en pantalla
-  const [mensajeExito, setMensajeExito] = useState('');
-  const [mensajeError, setMensajeError] = useState('');
+// Componentes de protección definidos fuera de App para evitar rerenders innecesarios
+const RutaPrivada = ({ children, isLoggedIn }) => {
+  return isLoggedIn ? children : <Navigate to="/login" replace />;
+};
 
-  //manejador que se ejecuta cada vez que el usuario escribe un campo
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+const RutaPublica = ({ children, isLoggedIn }) => {
+  return !isLoggedIn ? children : <Navigate to="/interconsultas" replace />;
+};
 
-  //manejador del envio del formulario
-  const handleSubmit = async (e) => {
-    //evita que la pagina se recargue al enviar el formulario
-    e.preventDefault();
-    setMensajeExito('');
-    setMensajeError('');
+function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    () => !!localStorage.getItem('token')
+  );
 
-    //validacion local basica
-    if (!formData.pacienteRut || !formData.especialidadDestino || !formData.motivoDerivacion) {
-      setMensajeError('Todos los campos marcados con (*) son obligatorios.');
-      return;
-    }
-
-    try {
-      //peticion POST al backend en node.js
-      const response = await fetch('http://localhost:5000/api/interconsultas', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al procesar la solicitud');
-      }
-
-      setMensajeExito(`Exito! Intercosulta #${data.data.id} registrada con estado: "${data.data.estado}".`);
-
-      //limpia las casillas del formulario
-      setFormData({
-        pacienteRut: '',
-        especialidadDestino: '',
-        prioridadClinica: 'Media',
-        motivoDerivacion: '',
-      });
-    } catch (err) {
-      setMensajeError(err.message);
-    }
+  const handleLogin = () => {
+    setIsLoggedIn(true);
   };
 
   return (
-    <div style={{ maxWidth: '600px', margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '20px' }}>
-      <h2>HU01A - Registrar Interconsulta (Atencion Primaria)</h2>
-      <p style={{ color: '#555' }}>Ingrese los datos basicos para tramitar la derivacion del paciente.</p>
+    <BrowserRouter>
+      <Routes>
+        {/* Rutas Públicas */}
+        <Route
+          path="/login"
+          element={
+            <RutaPublica isLoggedIn={isLoggedIn}>
+              <Login onLogin={handleLogin} />
+            </RutaPublica>
+          }
+        />
 
-      {/* alerta de exito: solo aparece si mensajeExito tiene texto */}
-      {mensajeExito && (
-        <div style={{ padding: '10px', backgroundColor: '#d4edda', color: '#155724', borderRadius: '4px', marginBottom: '15px' }}>
-          {mensajeExito}
-        </div>
-      )}
+        <Route
+          path="/signup"
+          element={
+            <RutaPublica isLoggedIn={isLoggedIn}>
+              <SignUp />
+            </RutaPublica>
+          }
+        />
 
-      {/* alerta de error */}
-      {mensajeError && (
-        <div style={{ padding: '10px', backgroundColor: '#f8d7da', color: '#721c24', borderRadius: '4px', marginBottom: '15px' }}>
-          {mensajeError}
-        </div>
-      )}
+        {/* Rutas Privadas */}
+        <Route
+          path="/interconsultas"
+          element={
+            <RutaPrivada isLoggedIn={isLoggedIn}>
+              <Interconsultas />
+            </RutaPrivada>
+          }
+        />
 
-      <form onSubmit={handleSubmit}>
-        {/* Campo rut del paciente */}
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Rut Paciente (*):</label>
-          <input
-            type="text"
-            name="pacienteRut"
-            placeholder="Ej: 12345678-9"
-            value={formData.pacienteRut}
-            onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+        <Route
+          path="/GestorRoles"
+          element={
+            <RutaPrivada isLoggedIn={isLoggedIn}>
+              <GestorRoles />
+            </RutaPrivada>
+          }
+        />
 
-        {/* campo especialidad de destino */}
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Especialidad de Destino (*):</label>
-          <input
-            type="text"
-            name="especialidadDestino"
-            placeholder="Ej: Cardiología"
-            value={formData.especialidadDestino}
-            onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
+        <Route
+          path="/interconsultas/listado"
+          element={
+            <RutaPrivada isLoggedIn={isLoggedIn}>
+              <ListadoInterconsultas />
+            </RutaPrivada>
+          }
+        />
 
-        {/* selector de prioridad clinica */}
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Prioridad Clínica (*):</label>
-          <select
-            name="prioridadClinica"
-            value={formData.prioridadClinica}
-            onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          >
-            <option value="Baja">Baja</option>
-            <option value="Media">Media</option>
-            <option value="Alta">Alta</option>
-          </select>
-        </div>
+        <Route
+          path="/interconsultas/registrar"
+          element={
+            <RutaPrivada isLoggedIn={isLoggedIn}>
+              <RegistrarInterconsulta />
+            </RutaPrivada>
+          }
+        />
 
-        {/* motivo de derivacion */}
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Motivo de Derivación (*):</label>
-          <textarea
-            name="motivoDerivacion"
-            rows="4"
-            placeholder="Describa brevemente el motivo clínico..."
-            value={formData.motivoDerivacion}
-            onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-          />
-        </div>
-
-        {/* boton de envio */}
-        <button
-          type="submit"
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#0056b3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontWeight: 'bold'
-          }}
-        >
-          Guardar y emitir interconsulta
-        </button>
-      </form>
-    </div>
+        {/* Redirección por defecto */}
+        <Route
+          path="*"
+          element={
+            <Navigate
+              to={isLoggedIn ? "/interconsultas" : "/login"}
+              replace
+            />
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
