@@ -4,6 +4,25 @@ from pydantic import BaseModel, Field
 from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 
+"""
+Set up this Neon project in the current working directory.
+
+1. `npm i -g neon@latest && neon login`
+2. `neon skills -y`
+3. `neon mcp -y`
+4. `neon link --project-id orange-cake-99630157 --branch production -y`
+5. `neon config init`
+6. Update `neon.ts`:
+
+```ts
+import { defineConfig } from "@neon/config/v1";
+
+export default defineConfig({});
+```
+
+7. `neon deploy`
+"""
+
 
 app = FastAPI(title="API Lista de Espera")
 
@@ -45,7 +64,7 @@ class formularioEntrada(BaseModel):
     idPersona : int
     idCesfam : int
     idHospital : int
-    prioridad : int
+    prioridad : str
 
 class accesoEntrada(BaseModel):
     idCesfam : int
@@ -359,6 +378,7 @@ try:
                 query = """
                 SELECT 
                     p.idPersona,
+                    p.calle
                     c.nombreComuna AS Comuna,
                     r.nombreRegion AS Region,
                     (SELECT GROUP_CONCAT(pc.contactos SEPARATOR ';') 
@@ -493,11 +513,18 @@ try:
                     cursor.close()
 
         @app.get("/formulario/{persona}/{cesfam}/{hospital}/{estado}/{prioridad}")
-        def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, prioridad: int):
+        def obtieneFormularios(
+            persona: int,
+            cesfam: int,
+            hospital: int,
+            estado: int,
+            prioridad: str
+        ):
             cursor = None
             try:
                 query = """
-                    SELECT idFormulario, descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado
+                    SELECT idFormulario, descripcion, fechaInicio,
+                        idPersona, idCesfam, idHospital, idEstado, prioridadClinica
                     FROM formulario
                 """
                 cursor = conexion.cursor(dictionary=True)
@@ -520,23 +547,27 @@ try:
                     condiciones.append("idEstado = %s")
                     filtro.append(estado)
 
-                if prioridad != 0:
+                prioridad_norm = (prioridad or "").strip().lower()
+                if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
+                    if prioridad_norm not in ("alta", "media", "baja"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
+                        )
                     condiciones.append("prioridadClinica = %s")
-                    filtro.append(prioridad)
+                    filtro.append(prioridad_norm)
 
                 if condiciones:
                     query += " WHERE " + " AND ".join(condiciones)
 
                 cursor.execute(query, tuple(filtro))
                 respuesta = cursor.fetchall()
-
-                return respuesta  # [] si no hay resultados, 200 siempre
+                return respuesta
 
             except HTTPException:
-                raise  # deja pasar las HTTPException tal cual
+                raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-
             finally:
                 if cursor:
                     cursor.close()
