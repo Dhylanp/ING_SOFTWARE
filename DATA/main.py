@@ -120,6 +120,7 @@ def login(datos: Login):
         # 3) ¿Tiene acceso con ese rol y está activo?
         query_acceso = """
             SELECT
+                p.idPersona,          -- 👈 OBLIGATORIO para el AuthContext
                 p.nombrePersona,
                 p.idComuna,
                 p.rut,

@@ -1,104 +1,96 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
-// Importar páginas desde ./pages/
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Interconsultas from './pages/Interconsultas';
 import ListadoInterconsultas from './pages/ListadoInterconsultas';
 import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
 import GestorRoles from './pages/GestorRoles';
+import Accesos from './pages/Accesos';                 // 👈 NUEVO
+import UserWidget from './components/UserWidget';
 
-// Componentes de protección definidos fuera de App para evitar rerenders innecesarios
-const RutaPrivada = ({ children, isLoggedIn }) => {
-  return isLoggedIn ? children : <Navigate to="/login" replace />;
+const RutaPrivada = () => {
+  const { isLoggedIn } = useAuth();
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  return (
+    <>
+      <UserWidget />
+      <Outlet />
+    </>
+  );
 };
 
-const RutaPublica = ({ children, isLoggedIn }) => {
+const RutaPorRol = ({ idRol, children }) => {
+  const { isLoggedIn, tieneRol } = useAuth();
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (!tieneRol(idRol)) return <Navigate to="/interconsultas" replace />;
+  return children;
+};
+
+const RutaPublica = ({ children }) => {
+  const { isLoggedIn } = useAuth();
   return !isLoggedIn ? children : <Navigate to="/interconsultas" replace />;
 };
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(
-    () => !!localStorage.getItem('token')
-  );
-
-  const handleLogin = () => {
-    setIsLoggedIn(true);
-  };
-
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Rutas Públicas */}
-        <Route
-          path="/login"
-          element={
-            <RutaPublica isLoggedIn={isLoggedIn}>
-              <Login onLogin={handleLogin} />
-            </RutaPublica>
-          }
-        />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route
+            path="/login"
+            element={
+              <RutaPublica>
+                <Login />
+              </RutaPublica>
+            }
+          />
+          <Route
+            path="/signup"
+            element={
+              <RutaPublica>
+                <SignUp />
+              </RutaPublica>
+            }
+          />
 
-        <Route
-          path="/signup"
-          element={
-            <RutaPublica isLoggedIn={isLoggedIn}>
-              <SignUp />
-            </RutaPublica>
-          }
-        />
+          <Route element={<RutaPrivada />}>
+            <Route path="/interconsultas" element={<Interconsultas />} />
+            <Route path="/interconsultas/listado" element={<ListadoInterconsultas />} />
+            <Route path="/interconsultas/registrar" element={<RegistrarInterconsulta />} />
 
-        {/* Rutas Privadas */}
-        <Route
-          path="/interconsultas"
-          element={
-            <RutaPrivada isLoggedIn={isLoggedIn}>
-              <Interconsultas />
-            </RutaPrivada>
-          }
-        />
-
-        <Route
-          path="/GestorRoles"
-          element={
-            <RutaPrivada isLoggedIn={isLoggedIn}>
-              <GestorRoles />
-            </RutaPrivada>
-          }
-        />
-
-        <Route
-          path="/interconsultas/listado"
-          element={
-            <RutaPrivada isLoggedIn={isLoggedIn}>
-              <ListadoInterconsultas />
-            </RutaPrivada>
-          }
-        />
-
-        <Route
-          path="/interconsultas/registrar"
-          element={
-            <RutaPrivada isLoggedIn={isLoggedIn}>
-              <RegistrarInterconsulta />
-            </RutaPrivada>
-          }
-        />
-
-        {/* Redirección por defecto */}
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to={isLoggedIn ? "/interconsultas" : "/login"}
-              replace
+            {/* Gestor de Roles: rol 4 */}
+            <Route
+              path="/GestorRoles"
+              element={
+                <RutaPorRol idRol={4}>
+                  <GestorRoles />
+                </RutaPorRol>
+              }
             />
-          }
-        />
-      </Routes>
-    </BrowserRouter>
+
+            {/* Accesos: solo Admin (1) o Externo (2) */}
+            <Route
+              path="/accesos"
+              element={
+                <RutaPorRol idRol={1}>
+                  <Accesos />
+                </RutaPorRol>
+              }
+            />
+          </Route>
+
+          <Route path="*" element={<RedirectDefault />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
+
+const RedirectDefault = () => {
+  const { isLoggedIn } = useAuth();
+  return <Navigate to={isLoggedIn ? '/interconsultas' : '/login'} replace />;
+};
 
 export default App;
