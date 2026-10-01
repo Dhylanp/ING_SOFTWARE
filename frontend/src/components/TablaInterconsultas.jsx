@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
+import api from '../api/axios';
 
-export default function TablaInterconsultas() {
+const nombresEstado = {
+    1: 'Registrada',
+    2: 'En lista de espera',
+    3: 'Devuelta',
+    4: 'Enviada',
+};
+
+export default function TablaInterconsultas({ filtros }) {
     //estado para almacenar la lista de interconsultas del backend
     const [interconsultas, setInterconsultas] = useState([]);
     //estados para manejar la experiencia de usuario
@@ -14,30 +22,23 @@ export default function TablaInterconsultas() {
                 setCargando(true);
                 setError(null);
 
-                //peticion GET al endpoint de la HU02
-                const respuesta = await fetch('https://21jfmx87-8000.brs.devtunnels.ms/formulario/0/0/0/0/0');
-
-                if (!respuesta.ok) {
-                    throw new Error('Error al consultar el listado de interconsultas.');
-                }
-
-                const datos = await respuesta.json();
-
-                setInterconsultas(datos);
+                const respuesta = await api.get(`/formulario/0/0/0/${filtros.estado}/${filtros.prioridad}`);
+                setInterconsultas(respuesta.data);
             } catch (err) {
-                setError(err.message);
+                if (err.response?.status === 404) {
+                    setInterconsultas([]);
+                } else {
+                    setError('Error al consultar el listado de interconsultas.');
+                }
             } finally {
                 setCargando(false);
             }
         };
 
         obtenerInterconsultas();
-    }, []);
+    }, [filtros]);
 
     //renderizado condicional si esta cargando
-    if (cargando) {
-        return <p style={{ textAlign: 'center' }}>Cargando listado de interconsultas...</p>;
-    }
 
     //renderizado condicional si hubo un error
     if (error) {
@@ -48,9 +49,11 @@ export default function TablaInterconsultas() {
         <div style={{ marginTop: '2rem' }}>
             <h2>Listado de interconsultas registradas</h2>
 
+            {cargando && <p style={{ textAlign: 'center' }}>Actualizando...</p>}
+
             {/*si la lista esta vacia se muestra un mensaje*/}
             {interconsultas.length === 0 ? (
-                <p>no hay interconsultas registradas en el sistema.</p>
+                !cargando && <p>no hay interconsultas registradas en el sistema.</p>
             ) : (
                 /*renderizado de la tabla cuando existen registros */
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
@@ -63,6 +66,7 @@ export default function TablaInterconsultas() {
                             <th style={{ padding: '8px', border: '1px solid #444' }}>CESFAM</th>
                             <th style={{ padding: '8px', border: '1px solid #444' }}>Hospital</th>
                             <th style={{ padding: '8px', border: '1px solid #444' }}>Estado</th>
+                            <th style={{ padding: '8px', border: '1px solid #444' }}>Prioridad</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -75,7 +79,8 @@ export default function TablaInterconsultas() {
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idPersona}</td>
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idCesfam}</td>
                                 <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idHospital}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.idEstado}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{nombresEstado[item.idEstado] ?? item.idEstado}</td>
+                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.prioridadClinica}</td>
                             </tr>
                         ))}
                     </tbody>
