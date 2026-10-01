@@ -22,8 +22,16 @@ export default function TablaInterconsultas({ filtros }) {
                 setCargando(true);
                 setError(null);
 
-                const respuesta = await api.get(`/formulario/0/0/0/${filtros.estado}/${filtros.prioridad}`);
-                setInterconsultas(respuesta.data);
+                //peticion GET al endpoint de la HU02
+                const respuesta = await fetch('https://ingsoftware-production-4899.up.railway.app/formulario/0/0/0/0/0');
+
+                if (!respuesta.ok) {
+                    throw new Error('Error al consultar el listado de interconsultas.');
+                }
+
+                const datos = await respuesta.json();
+
+                setInterconsultas(datos);
             } catch (err) {
                 if (err.response?.status === 404) {
                     setInterconsultas([]);
