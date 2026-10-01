@@ -467,25 +467,33 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
     try:
         conexion = get_conexion()
         query = """
-            SELECT idFormulario, descripcion, fechaInicio,
-                   idPersona, idCesfam, idHospital, idEstado, prioridadClinica
-            FROM formulario
+            SELECT f.idFormulario, f.descripcion, f.fechaInicio,
+                   p.nombrePersona,
+                   c.nombreComuna,
+                   h.nombreHospital,
+                   e.nombreEstado,
+                   f.prioridadClinica
+            FROM formulario f
+            LEFT JOIN persona p ON f.idPersona = p.idPersona
+            LEFT JOIN comuna c ON f.idCesfam = c.idComuna
+            LEFT JOIN hospital h ON f.idHospital = h.idHospital
+            LEFT JOIN estados e ON f.idEstado = e.idEstado
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
         filtro = []
 
         if persona != 0:
-            condiciones.append("idPersona = %s")
+            condiciones.append("f.idPersona = %s")
             filtro.append(persona)
         if cesfam != 0:
-            condiciones.append("idCesfam = %s")
+            condiciones.append("f.idCesfam = %s")
             filtro.append(cesfam)
         if hospital != 0:
-            condiciones.append("idHospital = %s")
+            condiciones.append("f.idHospital = %s")
             filtro.append(hospital)
         if estado != 0:
-            condiciones.append("idEstado = %s")
+            condiciones.append("f.idEstado = %s")
             filtro.append(estado)
 
         prioridad_norm = (prioridad or "").strip().lower()
@@ -495,7 +503,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
                     status_code=400,
                     detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
                 )
-            condiciones.append("prioridadClinica = %s")
+            condiciones.append("f.prioridadClinica = %s")
             filtro.append(prioridad_norm)
 
         if condiciones:

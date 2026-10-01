@@ -15,7 +15,7 @@ export default function TablaInterconsultas() {
                 setError(null);
 
                 //peticion GET al endpoint de la HU02
-                const respuesta = await fetch('https://21jfmx87-8000.brs.devtunnels.ms/formulario/0/0/0/0/0');
+                const respuesta = await fetch('https://ingsoftware-production-4899.up.railway.app/formulario/0/0/0/0/0');
 
                 if (!respuesta.ok) {
                     throw new Error('Error al consultar el listado de interconsultas.');
