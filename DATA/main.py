@@ -15,19 +15,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _get_env(name: str, default: str | None = None) -> str:
+    value = os.getenv(name, default)
+    if value is None or value == "":
+        raise RuntimeError(
+            f"Falta la variable de entorno '{name}'. "
+            f"Configúrala en Railway (Settings → Variables) apuntando al servicio MySQL."
+        )
+    return value
+
+
 def get_conexion():
     return mysql.connector.connect(
-        host=os.getenv("MYSQLHOST", "localhost"),
-        port=int(os.getenv("MYSQLPORT", 3306)),
-        database=os.getenv("MYSQLDATABASE", "listasespera"),
-        user=os.getenv("MYSQLUSER", "root"),
-        password=os.getenv("MYSQLPASSWORD", "Marti142106!"),
+        host=_get_env("MYSQLHOST"),
+        port=int(_get_env("MYSQLPORT", "3306")),
+        database=_get_env("MYSQLDATABASE"),
+        user=_get_env("MYSQLUSER"),
+        password=_get_env("MYSQLPASSWORD"),
+        connection_timeout=10,
     )
+
 
 class Login(BaseModel):
     rut: int
     clave: str
     rol: int
+
 
 class personaEntrada(BaseModel):
     rut: int
@@ -37,6 +51,7 @@ class personaEntrada(BaseModel):
     fechaNac: date
     calle: str
     idComuna: int
+
 
 class personaCompara(BaseModel):
     rut: int
@@ -48,6 +63,7 @@ class personaCompara(BaseModel):
     numero: int
     correo: str = Field(min_length=6, max_length=50)
 
+
 class formularioEntrada(BaseModel):
     descripcion: str = Field(min_length=0, max_length=200)
     fechaInicio: date
@@ -55,6 +71,7 @@ class formularioEntrada(BaseModel):
     idCesfam: int
     idHospital: int
     prioridad: str
+
 
 class accesoEntrada(BaseModel):
     idCesfam: int
@@ -66,6 +83,7 @@ class accesoEntrada(BaseModel):
 @app.get("/")
 def inicio():
     return {"mensaje": "Bienvenido a la API de Lista de Espera"}
+
 
 @app.post("/login")
 def login(datos: Login):
@@ -106,6 +124,7 @@ def login(datos: Login):
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.post("/persona", status_code=201)
 def creaPersona(persona: personaEntrada):
@@ -153,6 +172,7 @@ def creaPersona(persona: personaEntrada):
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.post("/formulario", status_code=201)
 def creaFormulario(formulario: formularioEntrada):
     conexion = None
@@ -185,6 +205,7 @@ def creaFormulario(formulario: formularioEntrada):
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.post("/acceso", status_code=201)
 def creaAcceso(acceso: accesoEntrada):
     conexion = None
@@ -213,6 +234,7 @@ def creaAcceso(acceso: accesoEntrada):
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.get("/region")
 def obtieneRegiones():
     conexion = None
@@ -235,6 +257,7 @@ def obtieneRegiones():
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.get("/comuna/{region}")
 def obtieneComunas(region: int):
@@ -264,6 +287,7 @@ def obtieneComunas(region: int):
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.get("/hospital/{comuna}")
 def obtieneHospitales(comuna: int):
     conexion = None
@@ -292,6 +316,7 @@ def obtieneHospitales(comuna: int):
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.get("/cesfam/{comuna}")
 def obtieneCesfams(comuna: int):
     conexion = None
@@ -319,6 +344,7 @@ def obtieneCesfams(comuna: int):
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.get("/contactos/{persona}")
 def obtieneDatosContacto(persona: int):
@@ -359,6 +385,7 @@ def obtieneDatosContacto(persona: int):
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.get("/comparaDatos/{rut}/{dv}/{nombrePersona}/{fechaNac}/{calle}/{idComuna}/{numero}/{correo}")
 def comparaDatosPersona(
@@ -432,6 +459,7 @@ def comparaDatosPersona(
         if conexion and conexion.is_connected():
             conexion.close()
 
+
 @app.get("/formulario/{persona}/{cesfam}/{hospital}/{estado}/{prioridad}")
 def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, prioridad: str):
     conexion = None
@@ -485,6 +513,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.get("/Acceso/{rol}/{persona}/{cesfam}/{hospital}")
 def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
