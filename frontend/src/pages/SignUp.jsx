@@ -13,6 +13,7 @@ const SignUp = () => {
     dv: '',
     nombrePersona: '',
     clave: '',
+    repetirClave: '',
     fechaNac: '',
     calle: '',
     idComuna: '',
@@ -27,15 +28,16 @@ const SignUp = () => {
 
   const loading = loadingRegiones || loadingComunas || loadingSubmit;
 
+  const clavesNoCoinciden =
+    formData.repetirClave.length > 0 && formData.clave !== formData.repetirClave;
+
   // Cargar regiones al montar
   useEffect(() => {
     const cargarRegiones = async () => {
       setLoadingRegiones(true);
       try {
         const url = `${API_URL}/region`;
-        console.log('[SignUp] Fetch regiones:', url);
         const res = await fetch(url);
-        console.log('[SignUp] Status regiones:', res.status);
 
         if (!res.ok) {
           const errorText = await res.text();
@@ -49,7 +51,6 @@ const SignUp = () => {
         }
 
         const data = await res.json();
-        console.log('[SignUp] Regiones recibidas:', data);
         setRegiones(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error('[SignUp] Error de red regiones:', err);
@@ -72,9 +73,7 @@ const SignUp = () => {
       try {
         const regionParam = formData.idRegion === '' ? 0 : formData.idRegion;
         const url = `${API_URL}/comuna/${regionParam}`;
-        console.log('[SignUp] Fetch comunas:', url);
         const res = await fetch(url);
-        console.log('[SignUp] Status comunas:', res.status);
 
         if (!res.ok) {
           const errorText = await res.text();
@@ -84,7 +83,6 @@ const SignUp = () => {
         }
 
         const data = await res.json();
-        console.log('[SignUp] Comunas recibidas:', data);
         setComunas(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error('[SignUp] Error de red comunas:', err);
@@ -154,6 +152,48 @@ const SignUp = () => {
     return `${anio}-${mes}-${dia}`;
   };
 
+  // 🔽 NUEVA función: intenta iniciar sesión con las credenciales recién creadas
+  const intentarAutoLogin = async () => {
+    try {
+      const loginRes = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rut: Number(formData.rut),
+          clave: formData.clave
+        })
+      });
+
+      const loginData = await loginRes.json();
+
+      // Acepta distintos nombres comunes para el token
+      const token =
+        loginData?.token ||
+        loginData?.access_token ||
+        loginData?.accessToken ||
+        null;
+
+      if (loginRes.ok && token) {
+        // Guardar sesión (ajusta las claves según tu proyecto)
+        localStorage.setItem('token', token);
+
+        const usuario =
+          loginData?.user || loginData?.usuario || loginData?.persona || null;
+        if (usuario) {
+          localStorage.setItem('user', JSON.stringify(usuario));
+        }
+
+        return true;
+      }
+
+      console.warn('[SignUp] Auto-login sin token:', loginData);
+      return false;
+    } catch (err) {
+      console.error('[SignUp] Error en auto-login:', err);
+      return false;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -162,6 +202,7 @@ const SignUp = () => {
       !formData.dv ||
       !formData.nombrePersona ||
       !formData.clave ||
+      !formData.repetirClave ||
       !formData.fechaNac ||
       !formData.calle ||
       !formData.idComuna
@@ -170,6 +211,15 @@ const SignUp = () => {
         icon: 'warning',
         title: 'Campos incompletos',
         text: 'Todos los campos son obligatorios.'
+      });
+      return;
+    }
+
+    if (formData.clave !== formData.repetirClave) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Las claves no coinciden',
+        text: 'La contraseña y su confirmación deben ser iguales.'
       });
       return;
     }
@@ -203,9 +253,9 @@ const SignUp = () => {
       });
 
       const data = await response.json();
-      setLoadingSubmit(false);
 
       if (data && data.codigo === 0) {
+        setLoadingSubmit(false);
         Swal.fire({
           icon: 'warning',
           title: 'RUT ya registrado',
@@ -215,6 +265,7 @@ const SignUp = () => {
       }
 
       if (!response.ok) {
+        setLoadingSubmit(false);
         Swal.fire({
           icon: 'error',
           title: 'Error',
@@ -224,13 +275,29 @@ const SignUp = () => {
       }
 
       if (data && data.codigo === 1) {
-        await Swal.fire({
-          icon: 'success',
-          title: 'Usuario creado',
-          text: data.mensaje || 'El usuario fue creado correctamente.',
-          confirmButtonText: 'Aceptar'
-        });
-        navigate('/login');
+        // 🔽 Registro OK → intentar auto-login
+        const logueado = await intentarAutoLogin();
+        setLoadingSubmit(false);
+
+        if (logueado) {
+          await Swal.fire({
+            icon: 'success',
+            title: '¡Bienvenido!',
+            text: 'Tu cuenta fue creada e iniciaste sesión automáticamente.',
+            timer: 1600,
+            showConfirmButton: false
+          });
+          navigate('/'); // 👈 cambia por la ruta de tu home/dashboard
+        } else {
+          await Swal.fire({
+            icon: 'success',
+            title: 'Usuario creado',
+            text: 'Tu cuenta fue creada correctamente.',
+            timer: 1500,
+            showConfirmButton: false
+          });
+          navigate('/interconsultas'); // 👈 AQUÍ
+        }
       }
     } catch (error) {
       setLoadingSubmit(false);
@@ -303,6 +370,26 @@ const SignUp = () => {
             placeholder="Ingrese su clave"
             style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
           />
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label>Repetir clave:</label>
+          <input
+            type="password"
+            name="repetirClave"
+            value={formData.repetirClave}
+            onChange={handleChange}
+            placeholder="Repita su clave"
+            style={{
+              width: '100%',
+              padding: '8px',
+              boxSizing: 'border-box',
+              borderColor: clavesNoCoinciden ? '#c00' : undefined
+            }}
+          />
+          {clavesNoCoinciden && (
+            <small style={{ color: '#c00' }}>Las claves no coinciden.</small>
+          )}
         </div>
 
         <div style={{ marginBottom: '15px' }}>

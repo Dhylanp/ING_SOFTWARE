@@ -85,13 +85,40 @@ def inicio():
     return {"mensaje": "Bienvenido a la API de Lista de Espera"}
 
 
+# ======================================================================
+# LOGIN mejorado:
+#   - Si el RUT no existe         -> 404 "Usuario no existe"
+#   - Si el RUT existe, clave mal -> 401 "Clave incorrecta"
+#   - Si RUT + clave OK pero no tiene el rol activo
+#                                 -> 403 "No posee acceso con ese rol"
+# ======================================================================
 @app.post("/login")
 def login(datos: Login):
     conexion = None
     cursor = None
     try:
         conexion = get_conexion()
-        query = """
+        cursor = conexion.cursor(dictionary=True)
+
+        # 1) ¿Existe el usuario con ese RUT?
+        cursor.execute("SELECT idPersona FROM persona WHERE rut = %s", (datos.rut,))
+        persona = cursor.fetchone()
+
+        if persona is None:
+            raise HTTPException(status_code=404, detail="Usuario no existe")
+
+        # 2) ¿La clave es correcta?
+        cursor.execute(
+            "SELECT idPersona FROM persona WHERE rut = %s AND clave = %s",
+            (datos.rut, datos.clave)
+        )
+        persona_clave = cursor.fetchone()
+
+        if persona_clave is None:
+            raise HTTPException(status_code=401, detail="Clave incorrecta")
+
+        # 3) ¿Tiene acceso con ese rol y está activo?
+        query_acceso = """
             SELECT
                 p.nombrePersona,
                 p.idComuna,
@@ -103,17 +130,18 @@ def login(datos: Login):
                 ON p.idPersona = a.idPersona
                 AND a.idRol = %s
             WHERE p.rut = %s
-            AND p.clave = %s
-            AND a.activo = %s
+              AND a.activo = %s
         """
-        cursor = conexion.cursor(dictionary=True)
-        cursor.execute(query, (datos.rol, datos.rut, datos.clave, 'S'))
+        cursor.execute(query_acceso, (datos.rol, datos.rut, 'S'))
         respuesta = cursor.fetchall()
 
         if len(respuesta) != 0:
             return respuesta
 
-        raise HTTPException(status_code=404, detail="No se posee Acceso")
+        raise HTTPException(
+            status_code=403,
+            detail="El usuario no posee acceso con ese rol"
+        )
 
     except HTTPException:
         raise
