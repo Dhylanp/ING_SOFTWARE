@@ -5,7 +5,7 @@ const formularioVacio = {
     idPersona: '',
     idCesfam: '',
     idHospital: '',
-    prioridad: 'media',
+    prioridad: '2',
     descripcion: '',
 };
 
@@ -139,9 +139,9 @@ export default function RegistrarInterconsulta() {
                         onChange={handleChange}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     >
-                        <option value="baja">Baja</option>
-                        <option value="media">Media</option>
-                        <option value="alta">Alta</option>
+                        <option value="3">Baja</option>
+                        <option value="2">Media</option>
+                        <option value="1">Alta</option>
                     </select>
                 </div>
 

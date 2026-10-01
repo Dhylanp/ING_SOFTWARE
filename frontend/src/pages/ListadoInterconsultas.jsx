@@ -11,7 +11,7 @@ export default function ListadoInterconsultas() {
   const handleChange = (e) => {
     setFiltros({
       ...filtros,
-      [e.target.name]: e.target.name === 'estado' ? Number(e.target.value) : e.target.value,
+      [e.target.name]: Number(e.target.value),
     });
   };
 
@@ -34,9 +34,9 @@ export default function ListadoInterconsultas() {
 
         <select name="prioridad" value={filtros.prioridad} onChange={handleChange}>
           <option value={0}>Todas las prioridades</option>
-          <option value="alta">Alta</option>
-          <option value="media">Media</option>
-          <option value="baja">Baja</option>
+          <option value={1}>Alta</option>
+          <option value={2}>Media</option>
+          <option value={3}>Baja</option>
         </select>
         <button onClick={limpiarFiltros}>Limpiar filtros</button>
       </div>
