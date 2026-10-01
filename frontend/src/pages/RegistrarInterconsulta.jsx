@@ -1,15 +1,34 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import api from '../api/axios';
+
+const formularioVacio = {
+    idPersona: '',
+    idCesfam: '',
+    idHospital: '',
+    prioridad: 'media',
+    descripcion: '',
+};
 
 export default function RegistrarInterconsulta() {
-    const [formData, setFormData] = useState({
-        pacienteRut: '',
-        especialidadDestino: '',
-        prioridadClinica: 'Media',
-        motivoDerivacion: '',
-    });
+    const [formData, setFormData] = useState(formularioVacio);
+    const [hospitales, setHospitales] = useState([]);
 
     const [mensajeExito, setMensajeExito] = useState('');
     const [mensajeError, setMensajeError] = useState('');
+
+    // carga la lista de hospitales al abrir la pantalla
+    useEffect(() => {
+        const obtenerHospitales = async () => {
+            try {
+                const respuesta = await api.get('/hospital/0');
+                setHospitales(respuesta.data);
+            } catch (err) {
+                setMensajeError('No se pudo cargar la lista de hospitales.');
+            }
+        };
+
+        obtenerHospitales();
+    }, []);
 
     const handleChange = (e) => {
         setFormData({
@@ -23,36 +42,26 @@ export default function RegistrarInterconsulta() {
         setMensajeExito('');
         setMensajeError('');
 
-        if (!formData.pacienteRut || !formData.especialidadDestino || !formData.motivoDerivacion) {
+        if (!formData.idPersona || !formData.idCesfam || !formData.idHospital || !formData.descripcion) {
             setMensajeError('Todos los campos marcados con (*) son obligatorios.');
             return;
         }
 
         try {
-            const response = await fetch('http://localhost:5000/api/interconsultas', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(formData)
+            const respuesta = await api.post('/formulario', {
+                descripcion: formData.descripcion,
+                fechaInicio: new Date().toLocaleDateString('en-CA'),
+                idPersona: Number(formData.idPersona),
+                idCesfam: Number(formData.idCesfam),
+                idHospital: Number(formData.idHospital),
+                prioridad: formData.prioridad,
             });
 
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Error al procesar la solicitud');
-            }
-
-            setMensajeExito(`Exito! Intercosulta #${data.data.id} registrada con estado: "${data.data.estado}".`);
-
-            setFormData({
-                pacienteRut: '',
-                especialidadDestino: '',
-                prioridadClinica: 'Media',
-                motivoDerivacion: '',
-            });
+            setMensajeExito(respuesta.data.mensaje);
+            setFormData(formularioVacio);
         } catch (err) {
-            setMensajeError(err.message);
+            const detalle = err.response?.data?.detail;
+            setMensajeError(typeof detalle === 'string' ? detalle : 'Error al procesar la solicitud');
         }
     };
 
@@ -77,44 +86,62 @@ export default function RegistrarInterconsulta() {
             )}
 
             <form onSubmit={handleSubmit}>
-                {/* Campo rut del paciente */}
+                {/* id del paciente (temporal) */}
                 <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Rut Paciente (*):</label>
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>ID Paciente (*):</label>
                     <input
-                        type="text"
-                        name="pacienteRut"
-                        placeholder="Ej: 12345678-9"
-                        value={formData.pacienteRut}
+                        type="number"
+                        name="idPersona"
+                        placeholder="Ej: 1"
+                        value={formData.idPersona}
                         onChange={handleChange}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     />
                 </div>
 
-                {/* campo especialidad de destino */}
+                {/* id del cesfam (temporal) */}
                 <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Especialidad de Destino (*):</label>
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>ID CESFAM (*):</label>
                     <input
-                        type="text"
-                        name="especialidadDestino"
-                        placeholder="Ej: Cardiología"
-                        value={formData.especialidadDestino}
+                        type="number"
+                        name="idCesfam"
+                        placeholder="Ej: 5"
+                        value={formData.idCesfam}
                         onChange={handleChange}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     />
+                </div>
+
+                {/* selector de hospital de destino */}
+                <div style={{ marginBottom: '15px' }}>
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Hospital de Destino (*):</label>
+                    <select
+                        name="idHospital"
+                        value={formData.idHospital}
+                        onChange={handleChange}
+                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                    >
+                        <option value="">Seleccione un hospital</option>
+                        {hospitales.map((h) => (
+                            <option key={h.idHospital} value={h.idHospital}>
+                                {h.nombreHospital}
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
                 {/* selector de prioridad clinica */}
                 <div style={{ marginBottom: '15px' }}>
                     <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Prioridad Clínica (*):</label>
                     <select
-                        name="prioridadClinica"
-                        value={formData.prioridadClinica}
+                        name="prioridad"
+                        value={formData.prioridad}
                         onChange={handleChange}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     >
-                        <option value="Baja">Baja</option>
-                        <option value="Media">Media</option>
-                        <option value="Alta">Alta</option>
+                        <option value="baja">Baja</option>
+                        <option value="media">Media</option>
+                        <option value="alta">Alta</option>
                     </select>
                 </div>
 
@@ -122,10 +149,10 @@ export default function RegistrarInterconsulta() {
                 <div style={{ marginBottom: '15px' }}>
                     <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Motivo de Derivación (*):</label>
                     <textarea
-                        name="motivoDerivacion"
+                        name="descripcion"
                         rows="4"
                         placeholder="Describa brevemente el motivo clínico..."
-                        value={formData.motivoDerivacion}
+                        value={formData.descripcion}
                         onChange={handleChange}
                         style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
                     />
