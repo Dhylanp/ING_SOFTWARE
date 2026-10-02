@@ -120,10 +120,11 @@ def login(datos: Login):
         # 3) ¿Tiene acceso con ese rol y está activo?
         query_acceso = """
             SELECT
-                p.idPersona,          -- 👈 OBLIGATORIO para el AuthContext
+                p.idPersona,
                 p.nombrePersona,
                 p.idComuna,
                 p.rut,
+                a.idRol,
                 a.idHospital,
                 a.idCesfam
             FROM persona p
@@ -131,7 +132,7 @@ def login(datos: Login):
                 ON p.idPersona = a.idPersona
                 AND a.idRol = %s
             WHERE p.rut = %s
-              AND a.activo = %s
+            AND a.activo = %s
         """
         cursor.execute(query_acceso, (datos.rol, datos.rut, 'S'))
         respuesta = cursor.fetchall()
