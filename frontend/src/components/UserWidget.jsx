@@ -1,20 +1,40 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, getNombreRol, getDescripcionRol } from '../context/AuthContext';
+import {
+  useAuth,
+  getNombreRol,
+  getDescripcionRol
+} from '../context/AuthContext';
 
 const UserWidget = () => {
-  const { sesion, cerrarSesion, tieneRol, getAcceso } = useAuth();
+  const { usuario, logout, tieneRol } = useAuth();
   const [abierto, setAbierto] = useState(false);
   const navigate = useNavigate();
 
-  if (!sesion) return null;
+  // Si no hay usuario, no renderizamos nada
+  if (!usuario) return null;
+
+  // Normalizamos el usuario a la forma que espera el widget
+  const sesion = {
+    idPersona: usuario.idPersona,
+    rut: usuario.rut,
+    nombrePersona: usuario.nombrePersona,
+    rolActual: Number(usuario.idRol ?? usuario.rolActual),
+    accesos: Array.isArray(usuario.accesos) ? usuario.accesos : []
+  };
 
   const handleLogout = () => {
-    cerrarSesion();
+    logout();
     navigate('/login', { replace: true });
   };
 
-  // ¿Puede ver Gestor de Roles?
+  // Helper: obtiene el acceso para un rol dado
+  const getAcceso = (idRol) => {
+    return sesion.accesos.find(
+      (a) => Number(a.idRol) === Number(idRol)
+    );
+  };
+
   const puedeGestionar = tieneRol(4);
   const accesoAdmin = getAcceso(1);
   const accesoExterno = getAcceso(2);
@@ -115,17 +135,11 @@ const UserWidget = () => {
                 letterSpacing: '0.5px'
               }}
             >
-              Accesos ({sesion.accesos?.length || 0})
+              Accesos ({sesion.accesos.length})
             </h4>
 
-            {sesion.accesos && sesion.accesos.length > 0 ? (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0
-                }}
-              >
+            {sesion.accesos.length > 0 ? (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {sesion.accesos.map((a, i) => (
                   <li
                     key={i}
@@ -147,7 +161,7 @@ const UserWidget = () => {
                       }}
                     >
                       <span>{getNombreRol(a.idRol)}</span>
-                      {a.idRol === sesion.rolActual && (
+                      {Number(a.idRol) === sesion.rolActual && (
                         <span
                           style={{
                             fontSize: '10px',
@@ -164,7 +178,7 @@ const UserWidget = () => {
                     <div style={{ fontSize: '12px', color: '#666' }}>
                       {getDescripcionRol(a.idRol)}
                     </div>
-                    {a.tipoCentro !== 'x' && (
+                    {a.tipoCentro && a.tipoCentro !== 'x' && (
                       <div
                         style={{
                           fontSize: '12px',
@@ -187,7 +201,6 @@ const UserWidget = () => {
               </p>
             )}
 
-            {/* Atajos según rol */}
             {(puedeGestionar || accesoAdmin || accesoExterno) && (
               <>
                 <h4

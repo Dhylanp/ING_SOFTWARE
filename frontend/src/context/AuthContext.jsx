@@ -42,10 +42,77 @@ export const AuthProvider = ({ children }) => {
         throw new Error('El servidor no devolvió información del usuario');
       }
 
-      const usuarioCompleto = {
-        ...datosUsuario,
-        idRol: Number(datosUsuario.idRol || rol)
-      };
+      // ============================================================
+      // Transformación de la respuesta del backend.
+      //
+      // El backend /login devuelve un ARRAY de accesos (una fila por
+      // cada acceso activo con ese rol). Lo convertimos a un objeto
+      // con la forma que espera el frontend (UserWidget, etc.):
+      //   {
+      //     idPersona, rut, nombrePersona, idRol,
+      //     accesos: [ { idRol, idCesfam, idHospital,
+      //                  tipoCentro, nombreCentro, idCentro } ]
+      //   }
+      // ============================================================
+      let usuarioCompleto;
+
+      if (Array.isArray(datosUsuario)) {
+        const primero = datosUsuario[0] || {};
+
+        usuarioCompleto = {
+          idPersona: primero.idPersona,
+          rut: primero.rut,
+          nombrePersona: primero.nombrePersona,
+          idComuna: primero.idComuna,
+          idRol: Number(primero.idRol || rol),
+
+          accesos: datosUsuario.map((a) => {
+            const idRol = Number(a.idRol);
+
+            // Rol 3 (Paciente) no tiene centro asociado
+            const tipoCentro =
+              idRol === 3
+                ? 'x'
+                : a.idCesfam && a.idCesfam !== 0
+                  ? 'Cesfam'
+                  : a.idHospital && a.idHospital !== 0
+                    ? 'Hospital'
+                    : 'x';
+
+            const idCentro =
+              tipoCentro === 'Cesfam'
+                ? a.idCesfam
+                : tipoCentro === 'Hospital'
+                  ? a.idHospital
+                  : 'x';
+
+            const nombreCentro =
+              tipoCentro === 'Cesfam'
+                ? a.nombreCesfam || ''
+                : tipoCentro === 'Hospital'
+                  ? a.nombreHospital || ''
+                  : '';
+
+            return {
+              idRol,
+              idCesfam: a.idCesfam,
+              idHospital: a.idHospital,
+              tipoCentro,
+              nombreCentro,
+              idCentro
+            };
+          })
+        };
+      } else {
+        // Por si el backend en el futuro devuelve un objeto
+        usuarioCompleto = {
+          ...datosUsuario,
+          idRol: Number(datosUsuario.idRol || rol),
+          accesos: Array.isArray(datosUsuario.accesos)
+            ? datosUsuario.accesos
+            : []
+        };
+      }
 
       localStorage.setItem(
         'usuario',
@@ -99,6 +166,18 @@ export const AuthProvider = ({ children }) => {
     return Number(usuario.idRol) === Number(idRol);
   };
 
+  // Helper: obtiene el acceso para un rol específico
+  // (útil para el UserWidget: getAcceso(1), getAcceso(2), etc.)
+  const getAcceso = (idRol) => {
+    if (!usuario || !Array.isArray(usuario.accesos)) {
+      return undefined;
+    }
+
+    return usuario.accesos.find(
+      (a) => Number(a.idRol) === Number(idRol)
+    );
+  };
+
   useEffect(() => {
     const usuarioGuardado = localStorage.getItem('usuario');
 
@@ -129,7 +208,8 @@ export const AuthProvider = ({ children }) => {
         iniciarSesion,
         login,
         logout,
-        tieneRol
+        tieneRol,
+        getAcceso
       }}
     >
       {children}
