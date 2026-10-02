@@ -7,7 +7,6 @@ import Interconsultas from './pages/Interconsultas';
 import ListadoInterconsultas from './pages/ListadoInterconsultas';
 import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
 import GestorRoles from './pages/GestorRoles';
-import Accesos from './pages/Accesos';                 // 👈 NUEVO
 import UserWidget from './components/UserWidget';
 
 const RutaPrivada = () => {
@@ -60,22 +59,12 @@ function App() {
             <Route path="/interconsultas/listado" element={<ListadoInterconsultas />} />
             <Route path="/interconsultas/registrar" element={<RegistrarInterconsulta />} />
 
-            {/* Gestor de Roles: rol 4 */}
+            {/* Gestor de Roles: requiere rol 4 */}
             <Route
               path="/GestorRoles"
               element={
                 <RutaPorRol idRol={4}>
                   <GestorRoles />
-                </RutaPorRol>
-              }
-            />
-
-            {/* Accesos: solo Admin (1) o Externo (2) */}
-            <Route
-              path="/accesos"
-              element={
-                <RutaPorRol idRol={1}>
-                  <Accesos />
                 </RutaPorRol>
               }
             />
