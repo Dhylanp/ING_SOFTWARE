@@ -267,15 +267,27 @@ const Accesos = () => {
       console.error(error);
 
       const detalle = error.response?.data?.detail;
+      const status = error.response?.status;
 
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text:
-          typeof detalle === 'string'
-            ? detalle
-            : 'No se pudo crear el acceso.'
-      });
+      let mensaje = 'No se pudo crear el acceso.';
+
+      if (typeof detalle === 'string') {
+        mensaje = detalle;
+      }
+
+      if (status === 409) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Acceso duplicado',
+          text: mensaje
+        });
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: mensaje
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -300,8 +312,13 @@ const Accesos = () => {
     setLoading(true);
 
     try {
+      const idPersona = Number(acceso.idPersona);
+      const idRol = Number(acceso.idRol);
+      const idCesfam = Number(acceso.idCesfam ?? 0);
+      const idHospital = Number(acceso.idHospital ?? 0);
+
       await api.delete(
-        `/acceso/${Number(acceso.idPersona)}/${Number(acceso.idRol)}/${Number(acceso.idCesfam || 0)}/${Number(acceso.idHospital || 0)}`
+        `/acceso/${idPersona}/${idRol}/${idCesfam}/${idHospital}`
       );
 
       Swal.fire({
@@ -315,15 +332,27 @@ const Accesos = () => {
       console.error(error);
 
       const detalle = error.response?.data?.detail;
+      const status = error.response?.status;
 
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text:
-          typeof detalle === 'string'
-            ? detalle
-            : 'No se pudo eliminar el acceso.'
-      });
+      let mensaje = 'No se pudo eliminar el acceso.';
+
+      if (typeof detalle === 'string') {
+        mensaje = detalle;
+      }
+
+      if (status === 404) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Acceso no encontrado',
+          text: 'Ese acceso ya no existe o los datos no coinciden.'
+        });
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: mensaje
+        });
+      }
     } finally {
       setLoading(false);
     }
