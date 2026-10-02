@@ -44,7 +44,8 @@ const Login = () => {
                 rol: Number(idRol)
             });
 
-            navigate('/interconsultas/listado', { replace: true });
+            // Redirige a /interconsultas (no a /listado)
+            navigate('/interconsultas', { replace: true });
         } catch (err) {
             setError(err.message || 'No se pudo iniciar sesión');
         } finally {

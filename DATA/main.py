@@ -287,6 +287,12 @@ def creaFormulario(formulario: formularioEntrada):
             conexion.close()
 
 
+# ======================================================================
+# POST /acceso
+#   - Valida duplicado antes de insertar
+#   - Captura IntegrityError 1062 (por si acaso)
+#   - Devuelve 409 con mensaje claro si ya existe
+# ======================================================================
 @app.post("/acceso", status_code=201)
 def creaAcceso(acceso: accesoEntrada):
     conexion = None
@@ -294,6 +300,31 @@ def creaAcceso(acceso: accesoEntrada):
     try:
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
+
+        # Validar si ya existe ese acceso exacto
+        cursor.execute(
+            """
+            SELECT idPersona
+            FROM acceso
+            WHERE idPersona = %s
+              AND idRol = %s
+              AND idCesfam = %s
+              AND idHospital = %s
+            """,
+            (
+                acceso.idPersona,
+                acceso.idRol,
+                acceso.idCesfam,
+                acceso.idHospital
+            )
+        )
+
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=409,
+                detail="Ese acceso ya existe para esta persona con ese rol y centro."
+            )
+
         query = """
             INSERT INTO acceso
                 (Activo, idCesfam, idHospital, idPersona, idRol)
@@ -305,10 +336,26 @@ def creaAcceso(acceso: accesoEntrada):
         conexion.commit()
         return {"codigo": 1, "mensaje": "Éxito para permitir Acceso"}
 
+    except HTTPException:
+        raise
+
+    except mysql.connector.IntegrityError as e:
+        if conexion:
+            conexion.rollback()
+
+        if getattr(e, "errno", None) == 1062:
+            raise HTTPException(
+                status_code=409,
+                detail="Ese acceso ya existe para esta persona con ese rol y centro."
+            )
+
+        raise HTTPException(status_code=500, detail=str(e))
+
     except Exception as e:
         if conexion:
             conexion.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
     finally:
         if cursor:
             cursor.close()
@@ -604,6 +651,11 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
             conexion.close()
 
 
+# ======================================================================
+# GET /Acceso/...
+#   - Ahora devuelve idCesfam e idHospital reales
+#     (necesarios para que el DELETE funcione)
+# ======================================================================
 @app.get("/Acceso/{rol}/{persona}/{cesfam}/{hospital}")
 def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
     conexion = None
@@ -614,6 +666,8 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
             SELECT
                 a.Activo AS activo,
                 a.idRol AS idRol,
+                a.idCesfam AS idCesfam,
+                a.idHospital AS idHospital,
                 CASE
                     WHEN a.idRol = 3 THEN 'x'
                     WHEN a.idCesfam != 0 THEN a.idCesfam
@@ -669,6 +723,7 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
 
 @app.delete("/acceso/{persona}/{rol}/{cesfam}/{hospital}")
 def eliminaAcceso(
