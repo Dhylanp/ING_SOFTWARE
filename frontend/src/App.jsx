@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import Tema from './components/Tema';
 
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
@@ -123,6 +124,7 @@ const AppContent = () => {
 function App() {
     return (
         <AuthProvider>
+            <Tema />
             <AppContent />
         </AuthProvider>
     );
