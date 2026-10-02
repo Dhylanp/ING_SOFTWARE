@@ -634,6 +634,7 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
             LEFT JOIN cesfam c ON a.idCesfam = c.idCesfam
             LEFT JOIN hospital h ON a.idHospital = h.idHospital
             INNER JOIN persona p ON a.idPersona = p.idPersona
+            WHERE a.idRol != 3
         """
         condiciones = []
         filtro = []
@@ -665,5 +666,68 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
     finally:
         if cursor:
             cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+@app.delete("/acceso/{persona}/{rol}/{cesfam}/{hospital}")
+def eliminaAcceso(
+    persona: int,
+    rol: int,
+    cesfam: int,
+    hospital: int
+):
+    conexion = None
+    cursor = None
+
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        query = """
+            DELETE FROM acceso
+            WHERE idPersona = %s
+              AND idRol = %s
+              AND idCesfam = %s
+              AND idHospital = %s
+        """
+
+        valores = (
+            persona,
+            rol,
+            cesfam,
+            hospital
+        )
+
+        cursor.execute(query, valores)
+
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontró el acceso para eliminar"
+            )
+
+        conexion.commit()
+
+        return {
+            "codigo": 1,
+            "mensaje": "Éxito para eliminar Acceso"
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+
         if conexion and conexion.is_connected():
             conexion.close()

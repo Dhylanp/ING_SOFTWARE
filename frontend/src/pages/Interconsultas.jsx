@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, getNombreRol } from '../context/AuthContext';
 
 export default function Interconsultas() {
   const { sesion, tieneRol } = useAuth();
@@ -18,7 +18,7 @@ export default function Interconsultas() {
       {sesion && (
         <p style={{ color: '#555' }}>
           Hola, <strong>{sesion.nombrePersona}</strong> — ingresaste como{' '}
-          <strong>{sesion.rolActual === 1 ? 'Admin' : sesion.rolActual === 2 ? 'Externo' : sesion.rolActual === 3 ? 'Usuario' : 'Gestionador de Roles'}</strong>
+          <strong>{getNombreRol(sesion.rolActual)}</strong>
         </p>
       )}
 
@@ -28,10 +28,6 @@ export default function Interconsultas() {
 
         {tieneRol(4) && (
           <Link to="/GestorRoles">Gestionar Roles por Usuario</Link>
-        )}
-
-        {(tieneRol(1) || tieneRol(2)) && (
-          <Link to="/accesos">Administrar Accesos</Link>
         )}
       </div>
     </div>
