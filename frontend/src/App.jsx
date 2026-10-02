@@ -9,6 +9,8 @@ import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
 import GestorRoles from './pages/GestorRoles';
 import UserWidget from './components/UserWidget';
 
+// Layout privado: valida sesión y renderiza el Outlet.
+// El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
     const { isLoggedIn } = useAuth();
 
@@ -16,12 +18,7 @@ const RutaPrivada = () => {
         return <Navigate to="/login" replace />;
     }
 
-    return (
-        <>
-            <UserWidget />
-            <Outlet />
-        </>
-    );
+    return <Outlet />;
 };
 
 const RutaPorRol = ({ idRol, children }) => {
@@ -32,7 +29,7 @@ const RutaPorRol = ({ idRol, children }) => {
     }
 
     if (!tieneRol(idRol)) {
-        return <Navigate to="/interconsultas/listado" replace />;
+        return <Navigate to="/interconsultas" replace />;
     }
 
     return children;
@@ -42,7 +39,7 @@ const RutaPublica = ({ children }) => {
     const { isLoggedIn } = useAuth();
 
     if (isLoggedIn) {
-        return <Navigate to="/interconsultas/listado" replace />;
+        return <Navigate to="/interconsultas" replace />;
     }
 
     return children;
@@ -53,75 +50,80 @@ const RedirectDefault = () => {
 
     return (
         <Navigate
-            to={isLoggedIn ? '/interconsultas/listado' : '/login'}
+            to={isLoggedIn ? '/interconsultas' : '/login'}
             replace
         />
+    );
+};
+
+// Componente interno que sí puede usar useAuth (está dentro de AuthProvider)
+const AppContent = () => {
+    const { isLoggedIn } = useAuth();
+
+    return (
+        <BrowserRouter>
+            {/* El widget se monta una sola vez si hay sesión */}
+            {isLoggedIn && <UserWidget />}
+
+            <Routes>
+                <Route
+                    path="/login"
+                    element={
+                        <RutaPublica>
+                            <Login />
+                        </RutaPublica>
+                    }
+                />
+
+                <Route
+                    path="/signup"
+                    element={
+                        <RutaPublica>
+                            <SignUp />
+                        </RutaPublica>
+                    }
+                />
+
+                <Route element={<RutaPrivada />}>
+                    <Route
+                        path="/interconsultas"
+                        element={<Interconsultas />}
+                    />
+
+                    <Route
+                        path="/interconsultas/listado"
+                        element={<ListadoInterconsultas />}
+                    />
+
+                    <Route
+                        path="/interconsultas/registrar"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <RegistrarInterconsulta />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/GestorRoles"
+                        element={
+                            <RutaPorRol idRol={4}>
+                                <GestorRoles />
+                            </RutaPorRol>
+                        }
+                    />
+                </Route>
+
+                <Route path="*" element={<RedirectDefault />} />
+            </Routes>
+        </BrowserRouter>
     );
 };
 
 function App() {
     return (
         <AuthProvider>
-            <BrowserRouter>
-                <Routes>
-
-                    <Route
-                        path="/login"
-                        element={
-                            <RutaPublica>
-                                <Login />
-                            </RutaPublica>
-                        }
-                    />
-
-                    <Route
-                        path="/signup"
-                        element={
-                            <RutaPublica>
-                                <SignUp />
-                            </RutaPublica>
-                        }
-                    />
-
-                    <Route element={<RutaPrivada />}>
-
-                        <Route
-                            path="/interconsultas"
-                            element={<Interconsultas />}
-                        />
-
-                        <Route
-                            path="/interconsultas/listado"
-                            element={<ListadoInterconsultas />}
-                        />
-
-                        <Route
-                            path="/interconsultas/registrar"
-                            element={
-                                <RutaPorRol idRol={1}>
-                                    <RegistrarInterconsulta />
-                                </RutaPorRol>
-                            }
-                        />
-
-                        <Route
-                            path="/GestorRoles"
-                            element={
-                                <RutaPorRol idRol={4}>
-                                    <GestorRoles />
-                                </RutaPorRol>
-                            }
-                        />
-
-                    </Route>
-
-                    <Route
-                        path="*"
-                        element={<RedirectDefault />}
-                    />
-
-                </Routes>
-            </BrowserRouter>
+            <AppContent />
         </AuthProvider>
     );
 }
