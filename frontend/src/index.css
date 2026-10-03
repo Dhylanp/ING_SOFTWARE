@@ -137,3 +137,71 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* ===== Botones ===== */
+button {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Botón rojo (cerrar sesión, eliminar, etc.): <button className="btn-peligro"> */
+.btn-peligro {
+  background-color: var(--danger);
+}
+
+.btn-peligro:hover:not(:disabled) {
+  background-color: var(--danger);
+  filter: brightness(0.9);
+}
+
+/* ===== Campos de formulario ===== */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  background-color: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* ===== Links y mensajes de error ===== */
+a {
+  color: var(--primary);
+}
+
+/* Un solo rojo para errores de validación: <span className="texto-error"> */
+.texto-error {
+  color: var(--danger-text);
+}

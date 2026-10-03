@@ -312,9 +312,11 @@ const SignUp = () => {
   return (
     <div
       style={{
+        width: '100%',
         maxWidth: '500px',
         margin: '40px auto',
         padding: '30px',
+        boxSizing: 'border-box',
         fontFamily: 'Arial, sans-serif'
       }}
     >
@@ -331,7 +333,7 @@ const SignUp = () => {
             value={formData.rut}
             onChange={handleChange}
             placeholder="Ej: 22079779"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -344,7 +346,7 @@ const SignUp = () => {
             onChange={handleChange}
             maxLength="1"
             placeholder="Ej: 9"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -356,7 +358,7 @@ const SignUp = () => {
             value={formData.nombrePersona}
             onChange={handleChange}
             placeholder="Ej: Juan Pérez"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -368,7 +370,7 @@ const SignUp = () => {
             value={formData.clave}
             onChange={handleChange}
             placeholder="Ingrese su clave"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -382,13 +384,11 @@ const SignUp = () => {
             placeholder="Repita su clave"
             style={{
               width: '100%',
-              padding: '8px',
-              boxSizing: 'border-box',
-              borderColor: clavesNoCoinciden ? '#c00' : undefined
+              borderColor: clavesNoCoinciden ? 'var(--danger)' : undefined
             }}
           />
           {clavesNoCoinciden && (
-            <small style={{ color: '#c00' }}>Las claves no coinciden.</small>
+            <small className="texto-error">Las claves no coinciden.</small>
           )}
         </div>
 
@@ -402,7 +402,7 @@ const SignUp = () => {
             placeholder="dd/mm/aaaa"
             maxLength="10"
             inputMode="numeric"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -414,7 +414,7 @@ const SignUp = () => {
             value={formData.calle}
             onChange={handleChange}
             placeholder="Ej: Av. España 123"
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           />
         </div>
 
@@ -424,7 +424,7 @@ const SignUp = () => {
             name="idRegion"
             value={formData.idRegion}
             onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           >
             <option value="">Todas las regiones</option>
             {regiones.map((r) => (
@@ -434,7 +434,7 @@ const SignUp = () => {
             ))}
           </select>
           {regiones.length === 0 && !loadingRegiones && (
-            <small style={{ color: '#c00' }}>
+            <small className="texto-error">
               No se pudieron cargar las regiones.
             </small>
           )}
@@ -446,7 +446,7 @@ const SignUp = () => {
             name="idComuna"
             value={formData.idComuna}
             onChange={handleChange}
-            style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            style={{ width: '100%' }}
           >
             <option value="">Seleccione una comuna</option>
             {comunas.map((c) => (
@@ -456,7 +456,7 @@ const SignUp = () => {
             ))}
           </select>
           {comunas.length === 0 && !loadingComunas && (
-            <small style={{ color: '#c00' }}>
+            <small className="texto-error">
               No se pudieron cargar las comunas.
             </small>
           )}
@@ -468,11 +468,6 @@ const SignUp = () => {
           style={{
             width: '100%',
             padding: '10px',
-            backgroundColor: loading ? '#999' : '#0056b3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: loading ? 'not-allowed' : 'pointer',
             fontWeight: 'bold'
           }}
         >
@@ -483,7 +478,7 @@ const SignUp = () => {
       <p
         onClick={() => navigate('/login')}
         style={{
-          color: '#0066cc',
+          color: 'var(--primary)',
           cursor: 'pointer',
           textAlign: 'center',
           marginTop: '20px'

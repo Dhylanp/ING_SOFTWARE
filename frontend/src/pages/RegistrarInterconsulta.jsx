@@ -97,21 +97,21 @@ export default function RegistrarInterconsulta() {
     };
 
     return (
-        <div style={{ maxWidth: '900px', margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '20px' }}>
+        <div style={{ width: '100%', maxWidth: '900px', margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '20px', boxSizing: 'border-box' }}>
 
             <h2>HU01A - Registrar Interconsulta (Atención Primaria)</h2>
-            <p style={{ color: '#555' }}>Ingrese los datos básicos para tramitar la derivación del paciente.</p>
+            <p style={{ color: 'var(--text-muted)' }}>Ingrese los datos básicos para tramitar la derivación del paciente.</p>
 
             {/* alerta de éxito */}
             {mensajeExito && (
-                <div style={{ padding: '10px', backgroundColor: '#d4edda', color: '#155724', borderRadius: '4px', marginBottom: '15px' }}>
+                <div style={{ padding: '10px', backgroundColor: 'var(--success-bg)', color: 'var(--success-text)', borderRadius: '4px', marginBottom: '15px' }}>
                     {mensajeExito}
                 </div>
             )}
 
             {/* alerta de error */}
             {mensajeError && (
-                <div style={{ padding: '10px', backgroundColor: '#f8d7da', color: '#721c24', borderRadius: '4px', marginBottom: '15px' }}>
+                <div style={{ padding: '10px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', borderRadius: '4px', marginBottom: '15px' }}>
                     {mensajeError}
                 </div>
             )}
@@ -126,7 +126,7 @@ export default function RegistrarInterconsulta() {
                         placeholder="Ej: 1"
                         value={formData.idPersona}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                        style={{ width: '100%' }}
                     />
                 </div>
 
@@ -139,7 +139,7 @@ export default function RegistrarInterconsulta() {
                         placeholder="Ej: 5"
                         value={formData.idCesfam}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                        style={{ width: '100%' }}
                     />
                 </div>
 
@@ -151,7 +151,7 @@ export default function RegistrarInterconsulta() {
                         value={formData.idHospital}
                         onChange={handleChange}
                         disabled={cargandoHospitales}
-                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                        style={{ width: '100%' }}
                     >
                         <option value="">
                             {cargandoHospitales ? 'Cargando hospitales...' : 'Seleccione un hospital'}
@@ -163,7 +163,7 @@ export default function RegistrarInterconsulta() {
                         ))}
                     </select>
                     {!cargandoHospitales && hospitales.length === 0 && (
-                        <small style={{ color: '#c00' }}>
+                        <small className="texto-error">
                             No hay hospitales disponibles.
                         </small>
                     )}
@@ -176,7 +176,7 @@ export default function RegistrarInterconsulta() {
                         name="prioridad"
                         value={formData.prioridad}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                        style={{ width: '100%' }}
                     >
                         <option value="3">Baja</option>
                         <option value="2">Media</option>
@@ -193,7 +193,7 @@ export default function RegistrarInterconsulta() {
                         placeholder="Describa brevemente el motivo clínico..."
                         value={formData.descripcion}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+                        style={{ width: '100%' }}
                     />
                 </div>
 
@@ -202,11 +202,6 @@ export default function RegistrarInterconsulta() {
                     type="submit"
                     style={{
                         padding: '10px 20px',
-                        backgroundColor: '#0056b3',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
                         fontWeight: 'bold'
                     }}
                 >

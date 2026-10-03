@@ -14,6 +14,18 @@ const nombresPrioridad = {
     3: 'Baja',
 };
 
+const estiloCelda = {
+    padding: '8px',
+    border: '1px solid var(--border)',
+    color: 'var(--text)',
+};
+
+const estiloEncabezado = {
+    ...estiloCelda,
+    backgroundColor: 'var(--surface-alt)',
+    color: 'var(--text-h)',
+};
+
 export default function TablaInterconsultas({ filtros }) {
     //estado para almacenar la lista de interconsultas del backend
     const [interconsultas, setInterconsultas] = useState([]);
@@ -53,7 +65,7 @@ export default function TablaInterconsultas({ filtros }) {
 
     //renderizado condicional si hubo un error
     if (error) {
-        return <p style={{ color: '#ff6b6b', textAlign: 'center' }}>Error: {error}</p>;
+        return <p style={{ color: 'var(--error-text)', textAlign: 'center' }}>Error: {error}</p>;
     }
 
     return (
@@ -67,31 +79,30 @@ export default function TablaInterconsultas({ filtros }) {
                 !cargando && <p>no hay interconsultas registradas en el sistema.</p>
             ) : (
                 /*renderizado de la tabla cuando existen registros */
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', backgroundColor: 'var(--surface)' }}>
                     <thead>
-                        <tr style={{ backgroundColor: '#2a2a2a', textAlign: 'left' }}>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>ID</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Descripcion</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Fecha de inicio</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Persona</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>CESFAM</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Hospital</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Estado</th>
-                            <th style={{ padding: '8px', border: '1px solid #444' }}>Prioridad</th>
+                        <tr style={{ textAlign: 'left' }}>
+                            <th style={estiloEncabezado}>ID</th>
+                            <th style={estiloEncabezado}>Descripcion</th>
+                            <th style={estiloEncabezado}>Fecha de inicio</th>
+                            <th style={estiloEncabezado}>Persona</th>
+                            <th style={estiloEncabezado}>CESFAM</th>
+                            <th style={estiloEncabezado}>Hospital</th>
+                            <th style={estiloEncabezado}>Estado</th>
+                            <th style={estiloEncabezado}>Prioridad</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {/*se recorre el arreglo con .map() para generar una fila (tr) por cada elemento */}
                         {interconsultas.map((item) => (
                             <tr key={item.idFormulario}>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>#{item.idFormulario}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.descripcion}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.fechaInicio}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombrePersona}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreComuna}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreHospital}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{item.nombreEstado}</td>
-                                <td style={{ padding: '8px', border: '1px solid #444' }}>{nombresPrioridad[item.prioridadClinica] ?? item.prioridadClinica}</td>
+                                <td style={estiloCelda}>#{item.idFormulario}</td>
+                                <td style={estiloCelda}>{item.descripcion}</td>
+                                <td style={estiloCelda}>{item.fechaInicio}</td>
+                                <td style={estiloCelda}>{item.nombrePersona}</td>
+                                <td style={estiloCelda}>{item.nombreComuna}</td>
+                                <td style={estiloCelda}>{item.nombreHospital}</td>
+                                <td style={estiloCelda}>{item.nombreEstado}</td>
+                                <td style={estiloCelda}>{nombresPrioridad[item.prioridadClinica] ?? item.prioridadClinica}</td>
                             </tr>
                         ))}
                     </tbody>
