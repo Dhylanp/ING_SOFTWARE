@@ -70,7 +70,7 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
-    prioridad: str
+    prioridad: Literal["alta", "media", "baja"]
 
 
 class accesoEntrada(BaseModel):
@@ -603,7 +603,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
                    f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idComuna
+            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
             LEFT JOIN hospital h ON f.idHospital = h.idHospital
             LEFT JOIN estados e ON f.idEstado = e.idEstado
         """
@@ -650,8 +650,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
         if conexion and conexion.is_connected():
             conexion.close()
 
-
-            @app.get("/formulario/filtrar")
+@app.get("/formulario/filtrar")
 def filtraFormularios(
     persona: int = 0,
     cesfam: int = 0,
@@ -691,7 +690,7 @@ def filtraFormularios(
                    f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idComuna
+            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
             LEFT JOIN hospital h ON f.idHospital = h.idHospital
             LEFT JOIN estados e ON f.idEstado = e.idEstado
         """
