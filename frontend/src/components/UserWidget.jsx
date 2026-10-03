@@ -52,12 +52,9 @@ const UserWidget = () => {
           width: '46px',
           height: '46px',
           borderRadius: '50%',
-          backgroundColor: '#0056b3',
-          color: 'white',
-          border: 'none',
           cursor: 'pointer',
           zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          boxShadow: 'var(--shadow)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -95,14 +92,14 @@ const UserWidget = () => {
               top: '70px',
               right: '15px',
               width: '320px',
-              backgroundColor: 'white',
-              border: '1px solid #ddd',
+              backgroundColor: 'var(--surface)',
+              border: '1px solid var(--border)',
               borderRadius: '10px',
-              boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+              boxShadow: 'var(--shadow)',
               padding: '18px',
               zIndex: 1001,
               fontSize: '14px',
-              color: '#222',
+              color: 'var(--text-h)',
               maxHeight: '80vh',
               overflowY: 'auto'
             }}
@@ -111,7 +108,7 @@ const UserWidget = () => {
               style={{
                 margin: '0 0 12px',
                 fontSize: '16px',
-                borderBottom: '1px solid #eee',
+                borderBottom: '1px solid var(--border)',
                 paddingBottom: '8px'
               }}
             >
@@ -130,7 +127,7 @@ const UserWidget = () => {
               style={{
                 margin: '14px 0 6px',
                 fontSize: '12px',
-                color: '#555',
+                color: 'var(--text-muted)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px'
               }}
@@ -146,9 +143,9 @@ const UserWidget = () => {
                     style={{
                       padding: '10px',
                       marginBottom: '6px',
-                      backgroundColor: '#f7f9fc',
+                      backgroundColor: 'var(--surface-alt)',
                       borderRadius: '6px',
-                      borderLeft: '3px solid #0056b3'
+                      borderLeft: '3px solid var(--primary)'
                     }}
                   >
                     <div
@@ -165,8 +162,8 @@ const UserWidget = () => {
                         <span
                           style={{
                             fontSize: '10px',
-                            backgroundColor: '#0056b3',
-                            color: 'white',
+                            backgroundColor: 'var(--primary)',
+                            color: 'var(--on-primary)',
                             padding: '2px 6px',
                             borderRadius: '8px'
                           }}
@@ -175,28 +172,28 @@ const UserWidget = () => {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                       {getDescripcionRol(a.idRol)}
                     </div>
                     {a.tipoCentro && a.tipoCentro !== 'x' && (
                       <div
                         style={{
                           fontSize: '12px',
-                          color: '#333',
+                          color: 'var(--text)',
                           marginTop: '4px',
                           paddingTop: '4px',
-                          borderTop: '1px dashed #ddd'
+                          borderTop: '1px dashed var(--border)'
                         }}
                       >
                         <strong>{a.tipoCentro}:</strong> {a.nombreCentro}{' '}
-                        <span style={{ color: '#888' }}>(ID {a.idCentro})</span>
+                        <span style={{ color: 'var(--text-muted)' }}>(ID {a.idCentro})</span>
                       </div>
                     )}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p style={{ color: '#888', fontSize: '13px', margin: 0 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
                 Sin accesos registrados
               </p>
             )}
@@ -207,7 +204,7 @@ const UserWidget = () => {
                   style={{
                     margin: '14px 0 6px',
                     fontSize: '12px',
-                    color: '#555',
+                    color: 'var(--text-muted)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}
@@ -245,15 +242,11 @@ const UserWidget = () => {
 
             <button
               onClick={handleLogout}
+              className="btn-peligro"
               style={{
                 width: '100%',
                 marginTop: '14px',
                 padding: '9px',
-                backgroundColor: '#c0392b',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
                 fontWeight: 'bold'
               }}
             >
@@ -275,7 +268,7 @@ const Dato = ({ etiqueta, valor }) => (
       fontSize: '13px'
     }}
   >
-    <span style={{ color: '#666' }}>{etiqueta}:</span>
+    <span style={{ color: 'var(--text-muted)' }}>{etiqueta}:</span>
     <span style={{ fontWeight: 'bold', textAlign: 'right' }}>{valor}</span>
   </div>
 );
@@ -286,9 +279,9 @@ const BotonAccion = ({ children, onClick }) => (
     style={{
       width: '100%',
       padding: '8px',
-      backgroundColor: '#eaf1fb',
-      color: '#0056b3',
-      border: '1px solid #c7daf5',
+      backgroundColor: 'var(--primary-soft)',
+      color: 'var(--text-h)',
+      border: '1px solid var(--primary-soft-border)',
       borderRadius: '6px',
       cursor: 'pointer',
       fontWeight: 'bold',

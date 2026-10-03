@@ -301,8 +301,7 @@ const Accesos = () => {
       showCancelButton: true,
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#6c757d'
+      customClass: { confirmButton: 'swal-peligro' }
     });
 
     if (!resultado.isConfirmed) {
@@ -373,9 +372,11 @@ const Accesos = () => {
   return (
     <div
       style={{
+        width: '100%',
         maxWidth: '1100px',
         margin: '40px auto',
         padding: '30px',
+        boxSizing: 'border-box',
         fontFamily: 'Arial, sans-serif'
       }}
     >
@@ -388,7 +389,8 @@ const Accesos = () => {
 
       <div
         style={{
-          border: '1px solid #ddd',
+          border: '1px solid var(--border)',
+          backgroundColor: 'var(--surface)',
           borderRadius: '8px',
           padding: '20px',
           marginBottom: '30px'
@@ -405,11 +407,7 @@ const Accesos = () => {
               name="idPersona"
               value={formData.idPersona}
               onChange={handleChange}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box'
-              }}
+              style={{ width: '100%' }}
             >
               <option value="">
                 Seleccione una persona
@@ -426,7 +424,7 @@ const Accesos = () => {
             </select>
 
             {personas.length === 0 && (
-              <small style={{ color: '#c00' }}>
+              <small className="texto-error">
                 No se pudieron cargar las personas.
               </small>
             )}
@@ -439,11 +437,7 @@ const Accesos = () => {
               name="idRol"
               value={formData.idRol}
               onChange={handleRolChange}
-              style={{
-                width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box'
-              }}
+              style={{ width: '100%' }}
             >
               <option value="">
                 Seleccione un rol
@@ -469,12 +463,14 @@ const Accesos = () => {
               disabled={rolSeleccionado !== 4}
               style={{
                 width: '100%',
-                padding: '8px',
-                boxSizing: 'border-box',
                 backgroundColor:
                   rolSeleccionado !== 4
-                    ? '#e9ecef'
-                    : 'white',
+                    ? 'var(--surface-alt)'
+                    : 'var(--surface)',
+                color:
+                  rolSeleccionado !== 4
+                    ? 'var(--text-muted)'
+                    : 'var(--text-h)',
                 cursor:
                   rolSeleccionado !== 4
                     ? 'not-allowed'
@@ -503,11 +499,7 @@ const Accesos = () => {
                 name="idCesfam"
                 value={formData.idCesfam}
                 onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  boxSizing: 'border-box'
-                }}
+                style={{ width: '100%' }}
               >
                 <option value="">
                   Seleccione un CESFAM
@@ -524,7 +516,7 @@ const Accesos = () => {
               </select>
 
               {cesfams.length === 0 && (
-                <small style={{ color: '#c00' }}>
+                <small className="texto-error">
                   No se pudieron cargar los CESFAM.
                 </small>
               )}
@@ -539,11 +531,7 @@ const Accesos = () => {
                 name="idHospital"
                 value={formData.idHospital}
                 onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  boxSizing: 'border-box'
-                }}
+                style={{ width: '100%' }}
               >
                 <option value="">
                   Seleccione un Hospital
@@ -560,7 +548,7 @@ const Accesos = () => {
               </select>
 
               {hospitales.length === 0 && (
-                <small style={{ color: '#c00' }}>
+                <small className="texto-error">
                   No se pudieron cargar los hospitales.
                 </small>
               )}
@@ -573,15 +561,6 @@ const Accesos = () => {
             style={{
               width: '100%',
               padding: '10px',
-              backgroundColor:
-                loading ? '#999' : '#0056b3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor:
-                loading
-                  ? 'not-allowed'
-                  : 'pointer',
               fontWeight: 'bold'
             }}
           >
@@ -604,7 +583,8 @@ const Accesos = () => {
             <table
               style={{
                 width: '100%',
-                borderCollapse: 'collapse'
+                borderCollapse: 'collapse',
+                backgroundColor: 'var(--surface)'
               }}
             >
               <thead>
@@ -687,7 +667,7 @@ const Accesos = () => {
                         style={{
                           border: 'none',
                           background: 'transparent',
-                          color: '#dc3545',
+                          color: 'var(--danger-text)',
                           fontSize: '20px',
                           cursor: 'pointer',
                           padding: '5px 10px'
@@ -708,15 +688,17 @@ const Accesos = () => {
 };
 
 const estiloTh = {
-  border: '1px solid #ddd',
+  border: '1px solid var(--border)',
   padding: '10px',
-  backgroundColor: '#f2f2f2',
+  backgroundColor: 'var(--surface-alt)',
+  color: 'var(--text-h)',
   textAlign: 'left'
 };
 
 const estiloTd = {
-  border: '1px solid #ddd',
-  padding: '10px'
+  border: '1px solid var(--border)',
+  padding: '10px',
+  color: 'var(--text)'
 };
 
 export default Accesos;

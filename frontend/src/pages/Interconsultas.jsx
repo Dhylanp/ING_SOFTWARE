@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAuth, getNombreRol } from '../context/AuthContext';
 
 export default function Interconsultas() {
-  const { sesion, tieneRol } = useAuth();
+  const { usuario, tieneRol } = useAuth();
 
   /*
   tieneRol(1) -> Admin
@@ -16,19 +16,18 @@ export default function Interconsultas() {
       style={{
         maxWidth: '900px',
         margin: '40px auto',
-        fontFamily: 'Arial, sans-serif',
         padding: '20px'
       }}
     >
       <h2>Interconsultas</h2>
 
-      {sesion && (
-        <p style={{ color: '#555' }}>
-          Hola, <strong>{sesion.nombrePersona}</strong> — ingresaste como{' '}
-          <strong>{getNombreRol(sesion.rolActual)}</strong>
+      {usuario && (
+        <p style={{ color: 'var(--text-muted)' }}>
+          Hola, <strong>{usuario.nombrePersona}</strong> — ingresaste como{' '}
+          <strong>{getNombreRol(usuario.idRol)}</strong>
         </p>
       )}
-
+      
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {!tieneRol(4) && (
           <Link to="/interconsultas/listado">Listado de interconsultas</Link>

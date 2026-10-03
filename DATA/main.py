@@ -651,6 +651,105 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
             conexion.close()
 
 
+            @app.get("/formulario/filtrar")
+def filtraFormularios(
+    persona: int = 0,
+    cesfam: int = 0,
+    hospital: int = 0,
+    estados: str = "",
+    prioridad: str = "todas",
+    desde: date | None = None,
+    hasta: date | None = None,
+):
+    conexion = None
+    cursor = None
+    try:
+        # "1,2,3" (texto) -> [1, 2, 3] (lista de números)
+        lista_estados = []
+        if estados.strip():
+            try:
+                lista_estados = [int(e) for e in estados.split(",")]
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="estados debe ser una lista de números separados por coma, por ejemplo '1,2'"
+                )
+
+        if desde and hasta and desde > hasta:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha 'desde' no puede ser posterior a la fecha 'hasta'"
+            )
+
+        conexion = get_conexion()
+        query = """
+            SELECT f.idFormulario, f.descripcion, f.fechaInicio,
+                   p.nombrePersona,
+                   c.nombreComuna,
+                   h.nombreHospital,
+                   e.nombreEstado,
+                   f.prioridadClinica
+            FROM formulario f
+            LEFT JOIN persona p ON f.idPersona = p.idPersona
+            LEFT JOIN comuna c ON f.idCesfam = c.idComuna
+            LEFT JOIN hospital h ON f.idHospital = h.idHospital
+            LEFT JOIN estados e ON f.idEstado = e.idEstado
+        """
+        cursor = conexion.cursor(dictionary=True)
+        condiciones = []
+        filtro = []
+
+        if persona != 0:
+            condiciones.append("f.idPersona = %s")
+            filtro.append(persona)
+        if cesfam != 0:
+            condiciones.append("f.idCesfam = %s")
+            filtro.append(cesfam)
+        if hospital != 0:
+            condiciones.append("f.idHospital = %s")
+            filtro.append(hospital)
+
+        # estados múltiples: f.idEstado IN (%s, %s, ...)
+        if lista_estados:
+            marcadores = ", ".join(["%s"] * len(lista_estados))
+            condiciones.append(f"f.idEstado IN ({marcadores})")
+            filtro.extend(lista_estados)
+
+        prioridad_norm = (prioridad or "").strip().lower()
+        if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
+            if prioridad_norm not in ("alta", "media", "baja"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
+                )
+            condiciones.append("f.prioridadClinica = %s")
+            filtro.append(prioridad_norm)
+
+        # rango de fechas (ambos extremos incluidos)
+        if desde:
+            condiciones.append("f.fechaInicio >= %s")
+            filtro.append(desde)
+        if hasta:
+            condiciones.append("f.fechaInicio <= %s")
+            filtro.append(hasta)
+
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
+
+        cursor.execute(query, tuple(filtro))
+        return cursor.fetchall()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
 # ======================================================================
 # GET /Acceso/...
 #   - Ahora devuelve idCesfam e idHospital reales

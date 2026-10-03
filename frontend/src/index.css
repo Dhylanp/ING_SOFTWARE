@@ -27,6 +27,8 @@
   --success-text: #155724;
   --error-bg: #f8d7da;
   --error-text: #721c24;
+  --warning-bg: #fff3cd;
+  --warning-text: #856404;
 
   --code-bg: #f4f3ec;
 
@@ -73,6 +75,8 @@
   --success-text: #86efac;
   --error-bg: rgba(239, 68, 68, 0.15);
   --error-text: #fca5a5;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-text: #fcd34d;
 
   --code-bg: #1f2028;
   color-scheme: dark;
@@ -105,20 +109,24 @@ h1 {
   font-size: 56px;
   letter-spacing: -1.68px;
   margin: 32px 0;
+
   @media (max-width: 1024px) {
     font-size: 36px;
     margin: 20px 0;
   }
 }
+
 h2 {
   font-size: 24px;
   line-height: 118%;
   letter-spacing: -0.24px;
   margin: 0 0 8px;
+
   @media (max-width: 1024px) {
     font-size: 20px;
   }
 }
+
 p {
   margin: 0;
 }
@@ -136,4 +144,118 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+/* ===== Botones ===== */
+button {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Botón rojo (cerrar sesión, eliminar, etc.): <button className="btn-peligro"> */
+.btn-peligro {
+  background-color: var(--danger);
+}
+
+.btn-peligro:hover:not(:disabled) {
+  background-color: var(--danger);
+  filter: brightness(0.9);
+}
+
+/* ===== Campos de formulario ===== */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  background-color: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* ===== Links y mensajes de error ===== */
+a {
+  color: var(--primary);
+}
+
+/* Un solo rojo para errores de validación: <span className="texto-error"> */
+.texto-error {
+  color: var(--danger-text);
+}
+
+/* Popups de SweetAlert2 (siguen el tema claro/oscuro) */
+.swal2-popup {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.swal2-title {
+  color: var(--text-h);
+}
+
+.swal2-html-container {
+  color: var(--text);
+}
+
+.swal2-styled.swal2-confirm {
+  background-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.swal2-styled.swal2-confirm:hover {
+  background-color: var(--primary-hover);
+}
+
+.swal2-styled.swal2-cancel {
+  background-color: var(--surface-alt);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+}
+
+/* Botón de confirmar en rojo (para diálogos de eliminar) */
+.swal2-styled.swal2-confirm.swal-peligro {
+  background-color: var(--danger);
+  color: var(--on-primary);
+}
+
+.swal2-styled.swal2-confirm.swal-peligro:hover {
+  background-color: var(--danger);
+  filter: brightness(0.9);
+}
+
+/* El ícono de éxito trae círculos blancos fijos que se ven mal en modo oscuro */
+.swal2-success [class^='swal2-success-circular-line'],
+.swal2-success-fix {
+  background: transparent !important;
 }

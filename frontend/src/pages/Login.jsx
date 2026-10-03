@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { useAuth, getNombreRol, getDescripcionRol } from '../context/AuthContext';
 
@@ -10,7 +11,6 @@ const Login = () => {
     const [idRol, setIdRol] = useState(null);
     const [rut, setRut] = useState('');
     const [clave, setClave] = useState('');
-    const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleRutChange = (e) => {
@@ -23,15 +23,21 @@ const Login = () => {
 
         if (loading) return;
 
-        setError('');
-
         if (!idRol) {
-            setError('Debe seleccionar un tipo de usuario');
+            Swal.fire({
+                icon: 'warning',
+                title: 'Falta el tipo de usuario',
+                text: 'Debe seleccionar un tipo de usuario.'
+            });
             return;
         }
 
         if (!rut || !clave) {
-            setError('Debe ingresar RUT y clave');
+            Swal.fire({
+                icon: 'warning',
+                title: 'Campos incompletos',
+                text: 'Debe ingresar RUT y clave.'
+            });
             return;
         }
 
@@ -47,7 +53,11 @@ const Login = () => {
             // Redirige a /interconsultas (no a /listado)
             navigate('/interconsultas', { replace: true });
         } catch (err) {
-            setError(err.message || 'No se pudo iniciar sesión');
+            Swal.fire({
+                icon: 'error',
+                title: 'No se pudo iniciar sesión',
+                text: err.message || 'Ocurrió un error al iniciar sesión.'
+            });
         } finally {
             setLoading(false);
         }
@@ -57,13 +67,12 @@ const Login = () => {
         if (loading) return;
 
         setIdRol(null);
-        setError('');
         setRut('');
         setClave('');
     };
 
     return (
-        <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
+        <div style={{ padding: '20px', width: '100%', maxWidth: '400px', margin: '0 auto', boxSizing: 'border-box' }}>
             <LoadingOverlay visible={loading} texto="Ingresando..." />
 
             <h2>Iniciar Sesión</h2>
@@ -101,7 +110,7 @@ const Login = () => {
                     <p
                         onClick={() => navigate('/signup')}
                         style={{
-                            color: '#0066cc',
+                            color: 'var(--primary)',
                             cursor: 'pointer',
                             textAlign: 'center',
                             marginTop: '15px'
@@ -113,7 +122,8 @@ const Login = () => {
             ) : (
                 <div
                     style={{
-                        border: '1px solid #ccc',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--surface)',
                         padding: '20px',
                         borderRadius: '8px',
                         marginTop: '15px'
@@ -139,7 +149,7 @@ const Login = () => {
                     <p
                         style={{
                             fontSize: '12px',
-                            color: '#666',
+                            color: 'var(--text-muted)',
                             marginTop: '-8px'
                         }}
                     >
@@ -148,6 +158,7 @@ const Login = () => {
 
                     <form
                         onSubmit={handleSubmit}
+                        noValidate
                         style={{
                             display: 'flex',
                             flexDirection: 'column',
@@ -165,11 +176,7 @@ const Login = () => {
                                 required
                                 disabled={loading}
                                 placeholder="Ej: 12345678"
-                                style={{
-                                    width: '100%',
-                                    padding: '8px',
-                                    boxSizing: 'border-box'
-                                }}
+                                style={{ width: '100%' }}
                             />
                         </label>
 
@@ -182,24 +189,9 @@ const Login = () => {
                                 onChange={(e) => setClave(e.target.value)}
                                 required
                                 disabled={loading}
-                                style={{
-                                    width: '100%',
-                                    padding: '8px',
-                                    boxSizing: 'border-box'
-                                }}
+                                style={{ width: '100%' }}
                             />
                         </label>
-
-                        {error && (
-                            <p
-                                style={{
-                                    color: 'red',
-                                    margin: '5px 0'
-                                }}
-                            >
-                                {error}
-                            </p>
-                        )}
 
                         <button
                             type="submit"
@@ -207,16 +199,7 @@ const Login = () => {
                             style={{
                                 marginTop: '10px',
                                 padding: '10px',
-                                backgroundColor: loading
-                                    ? '#999'
-                                    : '#0056b3',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontWeight: 'bold',
-                                cursor: loading
-                                    ? 'not-allowed'
-                                    : 'pointer'
+                                fontWeight: 'bold'
                             }}
                         >
                             {loading ? 'Ingresando...' : 'Ingresar'}
@@ -229,7 +212,7 @@ const Login = () => {
                                 }
                             }}
                             style={{
-                                color: '#0066cc',
+                                color: 'var(--primary)',
                                 cursor: loading
                                     ? 'not-allowed'
                                     : 'pointer',
@@ -253,27 +236,25 @@ const BotonRol = ({ onClick, idRol }) => (
         type="button"
         onClick={onClick}
         style={{
+            width: '100%',
+            boxSizing: 'border-box',
             padding: '10px',
-            backgroundColor: '#f7f9fc',
-            border: '1px solid #c7daf5',
+            backgroundColor: 'var(--surface-alt)',
+            color: 'var(--text-h)',
+            border: '1px solid var(--primary-soft-border)',
             borderRadius: '6px',
             cursor: 'pointer',
             textAlign: 'left'
         }}
     >
-        <div
-            style={{
-                fontWeight: 'bold',
-                color: '#0056b3'
-            }}
-        >
+        <div style={{ fontWeight: 'bold' }}>
             {getNombreRol(idRol)}
         </div>
 
         <div
             style={{
                 fontSize: '12px',
-                color: '#666',
+                color: 'var(--text-muted)',
                 marginTop: '2px'
             }}
         >
