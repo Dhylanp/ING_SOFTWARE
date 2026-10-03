@@ -70,7 +70,7 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
-    prioridad: Literal["alta", "media", "baja"]
+    prioridad: str
 
 
 class accesoEntrada(BaseModel):
