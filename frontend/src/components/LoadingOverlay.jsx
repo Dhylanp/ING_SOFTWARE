@@ -31,7 +31,7 @@ const LoadingOverlay = ({ visible, texto = 'Cargando...' }) => {
       >
         <div
           style={{
-            backgroundColor: 'white',
+            backgroundColor: 'var(--surface)',
             padding: '30px 50px',
             borderRadius: '10px',
             display: 'flex',
@@ -45,13 +45,13 @@ const LoadingOverlay = ({ visible, texto = 'Cargando...' }) => {
             style={{
               width: '50px',
               height: '50px',
-              border: '5px solid #f3f3f3',
-              borderTop: '5px solid #0056b3',
+              border: '5px solid var(--border)',
+              borderTop: '5px solid var(--primary)',
               borderRadius: '50%',
               animation: 'spin 1s linear infinite'
             }}
           />
-          <p style={{ margin: 0, fontWeight: 'bold', color: '#333' }}>
+          <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--text-h)' }}>
             {texto}
           </p>
         </div>

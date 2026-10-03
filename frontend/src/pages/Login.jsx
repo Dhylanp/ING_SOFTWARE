@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { useAuth, getNombreRol, getDescripcionRol } from '../context/AuthContext';
 
@@ -10,7 +11,6 @@ const Login = () => {
     const [idRol, setIdRol] = useState(null);
     const [rut, setRut] = useState('');
     const [clave, setClave] = useState('');
-    const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleRutChange = (e) => {
@@ -23,15 +23,21 @@ const Login = () => {
 
         if (loading) return;
 
-        setError('');
-
         if (!idRol) {
-            setError('Debe seleccionar un tipo de usuario');
+            Swal.fire({
+                icon: 'warning',
+                title: 'Falta el tipo de usuario',
+                text: 'Debe seleccionar un tipo de usuario.'
+            });
             return;
         }
 
         if (!rut || !clave) {
-            setError('Debe ingresar RUT y clave');
+            Swal.fire({
+                icon: 'warning',
+                title: 'Campos incompletos',
+                text: 'Debe ingresar RUT y clave.'
+            });
             return;
         }
 
@@ -47,7 +53,11 @@ const Login = () => {
             // Redirige a /interconsultas (no a /listado)
             navigate('/interconsultas', { replace: true });
         } catch (err) {
-            setError(err.message || 'No se pudo iniciar sesión');
+            Swal.fire({
+                icon: 'error',
+                title: 'No se pudo iniciar sesión',
+                text: err.message || 'Ocurrió un error al iniciar sesión.'
+            });
         } finally {
             setLoading(false);
         }
@@ -57,7 +67,6 @@ const Login = () => {
         if (loading) return;
 
         setIdRol(null);
-        setError('');
         setRut('');
         setClave('');
     };
@@ -149,6 +158,7 @@ const Login = () => {
 
                     <form
                         onSubmit={handleSubmit}
+                        noValidate
                         style={{
                             display: 'flex',
                             flexDirection: 'column',
@@ -182,15 +192,6 @@ const Login = () => {
                                 style={{ width: '100%' }}
                             />
                         </label>
-
-                        {error && (
-                            <p
-                                className="texto-error"
-                                style={{ margin: '5px 0' }}
-                            >
-                                {error}
-                            </p>
-                        )}
 
                         <button
                             type="submit"

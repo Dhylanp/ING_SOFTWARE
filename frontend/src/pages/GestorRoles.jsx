@@ -301,8 +301,7 @@ const Accesos = () => {
       showCancelButton: true,
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#6c757d'
+      customClass: { confirmButton: 'swal-peligro' }
     });
 
     if (!resultado.isConfirmed) {

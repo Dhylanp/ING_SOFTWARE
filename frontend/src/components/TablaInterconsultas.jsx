@@ -14,6 +14,21 @@ const nombresPrioridad = {
     3: 'Baja',
 };
 
+// colores de la etiqueta según la prioridad (1 alta, 2 media, 3 baja)
+const estilosPrioridad = {
+    1: { backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' },
+    2: { backgroundColor: 'var(--warning-bg)', color: 'var(--warning-text)' },
+    3: { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)' },
+};
+
+const estiloEtiqueta = {
+    display: 'inline-block',
+    padding: '2px 10px',
+    borderRadius: '999px',
+    fontSize: '13px',
+    fontWeight: 'bold',
+};
+
 const estiloCelda = {
     padding: '8px',
     border: '1px solid var(--border)',
@@ -102,7 +117,11 @@ export default function TablaInterconsultas({ filtros }) {
                                 <td style={estiloCelda}>{item.nombreComuna}</td>
                                 <td style={estiloCelda}>{item.nombreHospital}</td>
                                 <td style={estiloCelda}>{item.nombreEstado}</td>
-                                <td style={estiloCelda}>{nombresPrioridad[item.prioridadClinica] ?? item.prioridadClinica}</td>
+                                <td style={estiloCelda}>
+                                    <span style={{ ...estiloEtiqueta, ...estilosPrioridad[item.prioridadClinica] }}>
+                                        {nombresPrioridad[item.prioridadClinica] ?? item.prioridadClinica}
+                                    </span>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
