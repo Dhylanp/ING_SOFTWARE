@@ -1,37 +1,50 @@
 import { useState } from 'react';
 import TablaInterconsultas from '../components/TablaInterconsultas';
 
+const estadosDisponibles = [
+  { id: 1, nombre: 'Registrada' },
+  { id: 2, nombre: 'En lista de espera' },
+  { id: 3, nombre: 'Devuelta' },
+  { id: 4, nombre: 'Enviada' },
+];
+
+// estados = lista de ids marcados; desde/hasta = fechas en formato YYYY-MM-DD ('' = sin filtrar)
+const filtrosIniciales = { estados: [], prioridad: 0, desde: '', hasta: '' };
+
 export default function ListadoInterconsultas() {
-  // Estado y funcion
-  const [filtros, setFiltros] = useState({
-    estado: 0,
-    prioridad: 0,
-  });
+  const [filtros, setFiltros] = useState(filtrosIniciales);
 
   const handleChange = (e) => {
+    const { name, value } = e.target;
     setFiltros({
       ...filtros,
-      [e.target.name]: Number(e.target.value),
+      [name]: name === 'prioridad' ? Number(value) : value,
     });
   };
 
-  const limpiarFiltros = () => {
-    setFiltros({ estado: 0, prioridad: 0 });
+  // marca o desmarca un estado de la lista
+  const toggleEstado = (id) => {
+    const nuevosEstados = filtros.estados.includes(id)
+      ? filtros.estados.filter((e) => e !== id)
+      : [...filtros.estados, id];
+    setFiltros({ ...filtros, estados: nuevosEstados });
   };
+
+  const limpiarFiltros = () => {
+    setFiltros(filtrosIniciales);
+  };
+
+  // las fechas YYYY-MM-DD se pueden comparar directamente como texto
+  const fechasInvalidas = Boolean(
+    filtros.desde && filtros.hasta && filtros.desde > filtros.hasta
+  );
+  const estiloFecha = fechasInvalidas ? { borderColor: 'var(--error-text)' } : {};
 
   return (
     <div style={{ maxWidth: '900px', margin: '40px auto', padding: '20px' }}>
 
-      {/*Selectores*/}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-        <select name="estado" value={filtros.estado} onChange={handleChange}>
-          <option value={0}>Todos los estados</option>
-          <option value={1}>Registrada</option>
-          <option value={2}>En lista de espera</option>
-          <option value={3}>Devuelta</option>
-          <option value={4}>Enviada</option>
-        </select>
-
+      {/*Prioridad y limpiar filtros*/}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
         <select name="prioridad" value={filtros.prioridad} onChange={handleChange}>
           <option value={0}>Todas las prioridades</option>
           <option value={1}>Alta</option>
@@ -41,7 +54,42 @@ export default function ListadoInterconsultas() {
         <button onClick={limpiarFiltros}>Limpiar filtros</button>
       </div>
 
-      <TablaInterconsultas filtros={filtros} />
+      {/*Estados (se pueden marcar varios)*/}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', marginBottom: '12px' }}>
+        <span>Estados:</span>
+        {estadosDisponibles.map((estado) => (
+          <label key={estado.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <input
+              type="checkbox"
+              checked={filtros.estados.includes(estado.id)}
+              onChange={() => toggleEstado(estado.id)}
+            />
+            {estado.nombre}
+          </label>
+        ))}
+      </div>
+
+      {/*Rango de fechas*/}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          Desde
+          <input type="date" name="desde" value={filtros.desde} onChange={handleChange} style={estiloFecha} />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          Hasta
+          <input type="date" name="hasta" value={filtros.hasta} onChange={handleChange} style={estiloFecha} />
+        </label>
+      </div>
+      {fechasInvalidas && (
+        <p style={{ color: 'var(--error-text)', fontSize: '13px', margin: '6px 0 0' }}>
+          La fecha "desde" no puede ser posterior a la fecha "hasta".
+        </p>
+      )}
+
+      <div style={{ marginTop: '20px' }}>
+        {/*si las fechas son inválidas no se consulta la API*/}
+        {!fechasInvalidas && <TablaInterconsultas filtros={filtros} />}
+      </div>
     </div>
   );
 }
