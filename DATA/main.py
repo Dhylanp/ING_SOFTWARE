@@ -597,13 +597,13 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
-                   c.nombreComuna,
+                   c.nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
                    f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
+            LEFT JOIN cesfam c ON f.idCesfam = c.idCesfam
             LEFT JOIN hospital h ON f.idHospital = h.idHospital
             LEFT JOIN estados e ON f.idEstado = e.idEstado
         """
@@ -684,13 +684,13 @@ def filtraFormularios(
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
-                   c.nombreComuna,
+                   c.nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
                    f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
+            LEFT JOIN cesfam c ON f.idCesfam = c.idCesfam
             LEFT JOIN hospital h ON f.idHospital = h.idHospital
             LEFT JOIN estados e ON f.idEstado = e.idEstado
         """
