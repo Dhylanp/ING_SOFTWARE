@@ -714,15 +714,17 @@ def filtraFormularios(
             condiciones.append(f"f.idEstado IN ({marcadores})")
             filtro.extend(lista_estados)
 
+        # la columna prioridadClinica guarda 1 (alta), 2 (media) o 3 (baja)
+        prioridades = {"alta": 1, "media": 2, "baja": 3}
         prioridad_norm = (prioridad or "").strip().lower()
         if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
-            if prioridad_norm not in ("alta", "media", "baja"):
+            if prioridad_norm not in prioridades:
                 raise HTTPException(
                     status_code=400,
                     detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
                 )
             condiciones.append("f.prioridadClinica = %s")
-            filtro.append(prioridad_norm)
+            filtro.append(prioridades[prioridad_norm])
 
         # rango de fechas (ambos extremos incluidos)
         if desde:
