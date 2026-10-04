@@ -114,7 +114,7 @@ export default function TablaInterconsultas({ filtros }) {
                                 <td style={estiloCelda}>{item.descripcion}</td>
                                 <td style={estiloCelda}>{item.fechaInicio}</td>
                                 <td style={estiloCelda}>{item.nombrePersona}</td>
-                                <td style={estiloCelda}>{item.nombreComuna}</td>
+                                <td style={estiloCelda}>{item.nombreCesfam}</td>
                                 <td style={estiloCelda}>{item.nombreHospital}</td>
                                 <td style={estiloCelda}>{item.nombreEstado}</td>
                                 <td style={estiloCelda}>
