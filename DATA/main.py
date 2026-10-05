@@ -4,9 +4,13 @@ import re
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
+from passlib.context import CryptContext
 import os
 
-
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto"
+)
 app = FastAPI(title="API Lista de Espera")
 
 app.add_middleware(
@@ -152,39 +156,38 @@ def inicio():
     return {"mensaje": "Bienvenido a la API de Lista de Espera"}
 
 
-# ======================================================================
-# LOGIN mejorado:
-#   - Si el RUT no existe         -> 404 "Usuario no existe"
-#   - Si el RUT existe, clave mal -> 401 "Clave incorrecta"
-#   - Si RUT + clave OK pero no tiene el rol activo
-#                                 -> 403 "No posee acceso con ese rol"
-# ======================================================================
 @app.post("/login")
 def login(datos: Login):
     conexion = None
     cursor = None
+
     try:
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
 
-        # 1) ¿Existe el usuario con ese RUT?
-        cursor.execute("SELECT idPersona FROM persona WHERE rut = %s", (datos.rut,))
+        cursor.execute(
+            """
+            SELECT idPersona, clave
+            FROM persona
+            WHERE rut = %s
+            """,
+            (datos.rut,)
+        )
+
         persona = cursor.fetchone()
 
         if persona is None:
-            raise HTTPException(status_code=404, detail="Usuario no existe")
+            raise HTTPException(
+                status_code=404,
+                detail="Usuario no existe"
+            )
 
-        # 2) ¿La clave es correcta?
-        cursor.execute(
-            "SELECT idPersona FROM persona WHERE rut = %s AND clave = %s",
-            (datos.rut, datos.clave)
-        )
-        persona_clave = cursor.fetchone()
+        if not pwd_context.verify(datos.clave, persona["clave"]):
+            raise HTTPException(
+                status_code=401,
+                detail="Clave incorrecta"
+            )
 
-        if persona_clave is None:
-            raise HTTPException(status_code=401, detail="Clave incorrecta")
-
-        # 3) ¿Tiene acceso con ese rol y está activo?
         query_acceso = """
             SELECT
                 p.idPersona,
@@ -201,7 +204,12 @@ def login(datos: Login):
             WHERE p.rut = %s
             AND a.activo = %s
         """
-        cursor.execute(query_acceso, (datos.rol, datos.rut, 'S'))
+
+        cursor.execute(
+            query_acceso,
+            (datos.rol, datos.rut, 'S')
+        )
+
         respuesta = cursor.fetchall()
 
         if len(respuesta) != 0:
@@ -214,14 +222,19 @@ def login(datos: Login):
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if cursor:
-            cursor.close()
-        if conexion and conexion.is_connected():
-            conexion.close()
 
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+        if conexion is not None:
+            conexion.close()
 
 @app.post("/persona", status_code=201)
 def creaPersona(persona: personaEntrada):
@@ -240,9 +253,11 @@ def creaPersona(persona: personaEntrada):
             VALUES
                 (%s, %s, %s, %s, %s, %s, %s)
         """
+        clave_hash = pwd_context.hash(persona.clave)
+
         valores = (
             persona.rut, persona.dv, persona.calle,
-            persona.nombrePersona, persona.clave,
+            persona.nombrePersona, clave_hash,
             persona.fechaNac, persona.idComuna
         )
         cursor.execute(query, valores)

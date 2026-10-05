@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { useAuth, getNombreRol, getDescripcionRol } from '../context/AuthContext';
 
+
 const Login = () => {
     const navigate = useNavigate();
     const { iniciarSesion } = useAuth();
@@ -12,6 +13,7 @@ const Login = () => {
     const [rut, setRut] = useState('');
     const [clave, setClave] = useState('');
     const [loading, setLoading] = useState(false);
+    const [mostrarClave, setMostrarClave] = useState(false);
 
     const handleRutChange = (e) => {
         const valor = e.target.value.replace(/\D/g, '');
@@ -183,14 +185,71 @@ const Login = () => {
                         <label>
                             <p>CLAVE</p>
 
-                            <input
-                                type="password"
-                                value={clave}
-                                onChange={(e) => setClave(e.target.value)}
-                                required
-                                disabled={loading}
-                                style={{ width: '100%' }}
-                            />
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type={mostrarClave ? 'text' : 'password'}
+                                    value={clave}
+                                    onChange={(e) => setClave(e.target.value)}
+                                    placeholder="Contraseña"
+                                    style={{
+                                        width: '100%',
+                                        paddingRight: '45px'
+                                    }}
+                                />
+
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarClave(!mostrarClave)}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '10px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        border: 'none',
+                                        background: 'transparent',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                    aria-label={mostrarClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                                >
+                                    {mostrarClave ? (
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="20"
+                                            height="20"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        >
+                                            <path d="M3 3l18 18" />
+                                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                                            <path d="M9.88 4.24A9.7 9.7 0 0 1 12 4c5 0 9.27 3.11 11 8a17.8 17.8 0 0 1-2.16 3.19" />
+                                            <path d="M6.61 6.61C4.62 7.91 3.05 9.73 2 12c1.73 4.89 6 8 10 8a9.7 9.7 0 0 0 2.12-.24" />
+                                        </svg>
+                                    ) : (
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="20"
+                                            height="20"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        >
+                                            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                                            <circle cx="12" cy="12" r="3" />
+                                        </svg>
+                                    )}
+                                </button>
+                            </div>
                         </label>
 
                         <button
