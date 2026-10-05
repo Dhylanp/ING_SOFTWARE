@@ -27,13 +27,16 @@ export default function Interconsultas() {
           <strong>{getNombreRol(usuario.idRol)}</strong>
         </p>
       )}
-      
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {!tieneRol(4) && (
           <Link to="/interconsultas/listado">Listado de interconsultas</Link>
         )}
         {tieneRol(1) && (
           <Link to="/interconsultas/registrar">Registrar interconsulta</Link>
+        )}
+        {tieneRol(1) && (
+          <Link to="/pacientes/ficha">Ficha del paciente</Link>
         )}
         {tieneRol(4) && (
           <Link to="/GestorRoles">Gestionar Roles por Usuario</Link>

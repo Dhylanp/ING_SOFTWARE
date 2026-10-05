@@ -14,6 +14,13 @@ const nombresPrioridad = {
     3: 'Baja',
 };
 
+// el selector guarda 1, 2 o 3, pero el endpoint /formulario/filtrar espera texto
+const prioridadApi = {
+    1: 'alta',
+    2: 'media',
+    3: 'baja',
+};
+
 // colores de la etiqueta según la prioridad (1 alta, 2 media, 3 baja)
 const estilosPrioridad = {
     1: { backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' },
@@ -55,13 +62,15 @@ export default function TablaInterconsultas({ filtros }) {
                 setCargando(true);
                 setError(null);
 
-                //la API solo filtra prioridad con texto y la columna es numerica, asi que se filtra aqui
-                const respuesta = await api.get(`/formulario/0/0/0/${filtros.estado}/0`);
-                const datos = filtros.prioridad === 0
-                    ? respuesta.data
-                    : respuesta.data.filter((item) => Number(item.prioridadClinica) === filtros.prioridad);
-                setInterconsultas(datos);
+                // solo se mandan los filtros que el usuario eligió
+                const params = {};
+                if (filtros.estados.length > 0) params.estados = filtros.estados.join(',');
+                if (filtros.prioridad !== 0) params.prioridad = prioridadApi[filtros.prioridad];
+                if (filtros.desde) params.desde = filtros.desde;
+                if (filtros.hasta) params.hasta = filtros.hasta;
 
+                const respuesta = await api.get('/formulario/filtrar', { params });
+                setInterconsultas(respuesta.data);
             } catch (err) {
                 if (err.response?.status === 404) {
                     setInterconsultas([]);
@@ -114,7 +123,7 @@ export default function TablaInterconsultas({ filtros }) {
                                 <td style={estiloCelda}>{item.descripcion}</td>
                                 <td style={estiloCelda}>{item.fechaInicio}</td>
                                 <td style={estiloCelda}>{item.nombrePersona}</td>
-                                <td style={estiloCelda}>{item.nombreComuna}</td>
+                                <td style={estiloCelda}>{item.nombreCesfam}</td>
                                 <td style={estiloCelda}>{item.nombreHospital}</td>
                                 <td style={estiloCelda}>{item.nombreEstado}</td>
                                 <td style={estiloCelda}>
