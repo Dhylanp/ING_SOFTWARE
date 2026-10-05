@@ -301,7 +301,9 @@ const Accesos = () => {
       showCancelButton: true,
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
-      customClass: { confirmButton: 'swal-peligro' }
+      customClass: {
+        confirmButton: 'swal-peligro'
+      }
     });
 
     if (!resultado.isConfirmed) {
@@ -311,47 +313,50 @@ const Accesos = () => {
     setLoading(true);
 
     try {
-      const idPersona = Number(acceso.idPersona);
-      const idRol = Number(acceso.idRol);
-      const idCesfam = Number(acceso.idCesfam ?? 0);
-      const idHospital = Number(acceso.idHospital ?? 0);
+      const persona = Number(acceso.idPersona);
+      const rol = Number(acceso.idRol);
+      const cesfam = Number(acceso.idCesfam) || 0;
+      const hospital = Number(acceso.idHospital) || 0;
 
-      await api.delete(
-        `/acceso/${idPersona}/${idRol}/${idCesfam}/${idHospital}`
+      console.log('Eliminando acceso:', {
+        persona,
+        rol,
+        cesfam,
+        hospital
+      });
+
+      const response = await api.delete(
+        `/acceso/${persona}/${rol}/${cesfam}/${hospital}`
       );
 
       Swal.fire({
         icon: 'success',
         title: 'Acceso eliminado',
-        text: 'El acceso fue eliminado correctamente.'
+        text: response.data?.mensaje || 'El acceso fue eliminado correctamente.'
       });
 
       await cargarAccesos();
+
     } catch (error) {
-      console.error(error);
+      console.error('Error al eliminar acceso:', error);
 
-      const detalle = error.response?.data?.detail;
       const status = error.response?.status;
-
-      let mensaje = 'No se pudo eliminar el acceso.';
-
-      if (typeof detalle === 'string') {
-        mensaje = detalle;
-      }
+      const detalle = error.response?.data?.detail;
 
       if (status === 404) {
         Swal.fire({
           icon: 'info',
           title: 'Acceso no encontrado',
-          text: 'Ese acceso ya no existe o los datos no coinciden.'
+          text: detalle || 'El acceso ya no existe.'
         });
       } else {
         Swal.fire({
           icon: 'error',
           title: 'Error',
-          text: mensaje
+          text: detalle || 'No se pudo eliminar el acceso.'
         });
       }
+
     } finally {
       setLoading(false);
     }
