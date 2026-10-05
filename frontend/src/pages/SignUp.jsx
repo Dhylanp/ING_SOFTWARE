@@ -5,6 +5,38 @@ import LoadingOverlay from '../components/LoadingOverlay';
 
 const API_URL = 'https://ingsoftware-production-4899.up.railway.app';
 
+// ---------------------------------------------------------------
+// Helper: convierte cualquier respuesta de error en texto legible
+// Evita que Swal muestre "[object Object]"
+// ---------------------------------------------------------------
+const extraerMensajeError = (data, fallback = 'Ocurrió un error inesperado.') => {
+  if (data === null || data === undefined) return fallback;
+  if (typeof data === 'string') return data;
+
+  // FastAPI: { detail: "..." } o { detail: [{ msg: "..." }] }
+  if (data.detail) {
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+      return data.detail
+        .map((e) => e.msg || JSON.stringify(e))
+        .join('\n');
+    }
+    return JSON.stringify(data.detail);
+  }
+
+  // Backend propio: { mensaje: "..." }
+  if (data.mensaje) return data.mensaje;
+
+  // Error nativo de JS
+  if (data.message) return data.message;
+
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return fallback;
+  }
+};
+
 const SignUp = () => {
   const navigate = useNavigate();
 
@@ -36,8 +68,7 @@ const SignUp = () => {
     const cargarRegiones = async () => {
       setLoadingRegiones(true);
       try {
-        const url = `${API_URL}/region`;
-        const res = await fetch(url);
+        const res = await fetch(`${API_URL}/region`);
 
         if (!res.ok) {
           const errorText = await res.text();
@@ -72,8 +103,7 @@ const SignUp = () => {
       setLoadingComunas(true);
       try {
         const regionParam = formData.idRegion === '' ? 0 : formData.idRegion;
-        const url = `${API_URL}/comuna/${regionParam}`;
-        const res = await fetch(url);
+        const res = await fetch(`${API_URL}/comuna/${regionParam}`);
 
         if (!res.ok) {
           const errorText = await res.text();
@@ -152,7 +182,11 @@ const SignUp = () => {
     return `${anio}-${mes}-${dia}`;
   };
 
-  // 🔽 NUEVA función: intenta iniciar sesión con las credenciales recién creadas
+  // ---------------------------------------------------------------
+  // Auto-login tras crear la cuenta
+  // El backend NO devuelve token: devuelve un array de accesos.
+  // El rol 3 = Paciente (el que asigna POST /persona por defecto).
+  // ---------------------------------------------------------------
   const intentarAutoLogin = async () => {
     try {
       const loginRes = await fetch(`${API_URL}/login`, {
@@ -160,33 +194,31 @@ const SignUp = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rut: Number(formData.rut),
-          clave: formData.clave
+          clave: formData.clave,
+          rol: 3 // 👈 OBLIGATORIO: el modelo Login lo exige
         })
       });
 
       const loginData = await loginRes.json();
 
-      // Acepta distintos nombres comunes para el token
-      const token =
-        loginData?.token ||
-        loginData?.access_token ||
-        loginData?.accessToken ||
-        null;
+      if (!loginRes.ok) {
+        console.warn('[SignUp] Auto-login falló:', loginRes.status, loginData);
+        return false;
+      }
 
-      if (loginRes.ok && token) {
-        // Guardar sesión (ajusta las claves según tu proyecto)
-        localStorage.setItem('token', token);
+      // El backend devuelve un array de accesos
+      if (Array.isArray(loginData) && loginData.length > 0) {
+        const usuario = loginData[0];
 
-        const usuario =
-          loginData?.user || loginData?.usuario || loginData?.persona || null;
-        if (usuario) {
-          localStorage.setItem('user', JSON.stringify(usuario));
-        }
+        localStorage.setItem('user', JSON.stringify(usuario));
+        localStorage.setItem('idPersona', String(usuario.idPersona));
+        localStorage.setItem('rol', String(usuario.idRol));
+        localStorage.setItem('nombrePersona', usuario.nombrePersona || '');
 
         return true;
       }
 
-      console.warn('[SignUp] Auto-login sin token:', loginData);
+      console.warn('[SignUp] Respuesta de login inesperada:', loginData);
       return false;
     } catch (err) {
       console.error('[SignUp] Error en auto-login:', err);
@@ -224,6 +256,15 @@ const SignUp = () => {
       return;
     }
 
+    if (formData.clave.length < 8) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Clave muy corta',
+        text: 'La contraseña debe tener al menos 8 caracteres.'
+      });
+      return;
+    }
+
     const fechaConvertida = convertirFecha(formData.fechaNac);
     if (!fechaConvertida) {
       Swal.fire({
@@ -252,8 +293,15 @@ const SignUp = () => {
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      // Puede que la respuesta no sea JSON (por ejemplo 500 con HTML)
+      let data = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
 
+      // Caso: RUT ya registrado (backend responde 201 con codigo: 0)
       if (data && data.codigo === 0) {
         setLoadingSubmit(false);
         Swal.fire({
@@ -269,13 +317,13 @@ const SignUp = () => {
         Swal.fire({
           icon: 'error',
           title: 'Error',
-          text: data.detail || 'No se pudo crear el usuario.'
+          text: extraerMensajeError(data, `Error ${response.status}`)
         });
         return;
       }
 
       if (data && data.codigo === 1) {
-        // 🔽 Registro OK → intentar auto-login
+        // Registro OK → intentar auto-login
         const logueado = await intentarAutoLogin();
         setLoadingSubmit(false);
 
@@ -287,16 +335,16 @@ const SignUp = () => {
             timer: 1600,
             showConfirmButton: false
           });
-          navigate('/'); // 👈 cambia por la ruta de tu home/dashboard
+          navigate('/');
         } else {
           await Swal.fire({
             icon: 'success',
             title: 'Usuario creado',
-            text: 'Tu cuenta fue creada correctamente.',
-            timer: 1500,
+            text: 'Tu cuenta fue creada correctamente. Inicia sesión para continuar.',
+            timer: 1800,
             showConfirmButton: false
           });
-          navigate('/interconsultas'); // 👈 AQUÍ
+          navigate('/login');
         }
       }
     } catch (error) {
@@ -304,7 +352,7 @@ const SignUp = () => {
       Swal.fire({
         icon: 'error',
         title: 'Error de conexión',
-        text: 'No se pudo conectar con el servidor.'
+        text: extraerMensajeError(error, 'No se pudo conectar con el servidor.')
       });
     }
   };
@@ -369,7 +417,7 @@ const SignUp = () => {
             name="clave"
             value={formData.clave}
             onChange={handleChange}
-            placeholder="Ingrese su clave"
+            placeholder="Ingrese su clave (mín. 8 caracteres)"
             style={{ width: '100%' }}
           />
         </div>
