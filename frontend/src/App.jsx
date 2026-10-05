@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Tema from './components/Tema';
-
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Interconsultas from './pages/Interconsultas';
@@ -9,8 +8,8 @@ import ListadoInterconsultas from './pages/ListadoInterconsultas';
 import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
 import GestorRoles from './pages/GestorRoles';
 import UserWidget from './components/UserWidget';
+import FichaPaciente from './pages/FichaPaciente';
 
-// Layout privado: valida sesión y renderiza el Outlet.
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
     const { isLoggedIn } = useAuth();
@@ -101,6 +100,15 @@ const AppContent = () => {
                         element={
                             <RutaPorRol idRol={1}>
                                 <RegistrarInterconsulta />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/pacientes/ficha"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <FichaPaciente />
                             </RutaPorRol>
                         }
                     />
