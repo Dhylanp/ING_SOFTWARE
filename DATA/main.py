@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 import mysql.connector
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from urllib.parse import quote
 import bcrypt
 import os
 import re
@@ -1356,6 +1358,152 @@ def actualizaPerfil(idPersona: int, datos: perfilEdicion):
         if conexion:
             conexion.rollback()
         logger.exception("Error en PUT /persona/{idPersona}/perfil")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+            
+            
+
+# ======================================================================
+# documentos PDF adjuntos a una interconsulta
+# Los PDF se guardan dentro de MySQL (tabla formulario_documento) porque
+# el disco de Railway se borra en cada redespliegue.
+# ======================================================================
+MAX_PDF_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@app.post("/formulario/{idFormulario}/documentos", status_code=201)
+def subeDocumento(idFormulario: int, archivo: UploadFile = File(...)):
+    conexion = None
+    cursor = None
+    try:
+        nombre = os.path.basename(archivo.filename or "").strip()
+        if not nombre.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+
+        # se lee 1 byte de más para saber si el archivo supera el máximo
+        contenido = archivo.file.read(MAX_PDF_BYTES + 1)
+        if len(contenido) == 0:
+            raise HTTPException(status_code=400, detail="El archivo está vacío")
+        if len(contenido) > MAX_PDF_BYTES:
+            raise HTTPException(status_code=400, detail="El archivo supera el máximo de 5 MB")
+        # todo PDF real empieza con %PDF-; evita que renombren otro archivo a .pdf
+        if not contenido.startswith(b"%PDF-"):
+            raise HTTPException(status_code=400, detail="El archivo no es un PDF válido")
+
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT idFormulario FROM formulario WHERE idFormulario = %s",
+            (idFormulario,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="La interconsulta no existe")
+
+        cursor.execute(
+            """
+            INSERT INTO formulario_documento
+                (idFormulario, nombreArchivo, tipoMime, tamanoBytes, contenido)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (idFormulario, nombre[:255], "application/pdf", len(contenido), contenido)
+        )
+        conexion.commit()
+        return {
+            "codigo": 1,
+            "mensaje": "Documento adjuntado correctamente",
+            "idDocumento": cursor.lastrowid,
+            "nombreArchivo": nombre[:255],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en POST /formulario/{idFormulario}/documentos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/formulario/{idFormulario}/documentos")
+def listaDocumentos(idFormulario: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT idFormulario FROM formulario WHERE idFormulario = %s",
+            (idFormulario,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="La interconsulta no existe")
+
+        # no se trae la columna contenido: la lista solo necesita los datos del archivo
+        cursor.execute(
+            """
+            SELECT idDocumento, nombreArchivo, tamanoBytes, fechaSubida
+            FROM formulario_documento
+            WHERE idFormulario = %s
+            ORDER BY fechaSubida DESC, idDocumento DESC
+            """,
+            (idFormulario,)
+        )
+        return cursor.fetchall()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /formulario/{idFormulario}/documentos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/documentos/{idDocumento}")
+def descargaDocumento(idDocumento: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT nombreArchivo, tipoMime, contenido
+            FROM formulario_documento
+            WHERE idDocumento = %s
+            """,
+            (idDocumento,)
+        )
+        doc = cursor.fetchone()
+        if doc is None:
+            raise HTTPException(status_code=404, detail="El documento no existe")
+
+        # filename* permite nombres con tildes o ñ
+        nombre = quote(doc["nombreArchivo"])
+        return Response(
+            content=bytes(doc["contenido"]),
+            media_type=doc["tipoMime"],
+            headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /documentos/{idDocumento}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
