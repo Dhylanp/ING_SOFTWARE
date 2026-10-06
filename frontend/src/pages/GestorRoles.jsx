@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 import api from '../api/axios';
@@ -13,18 +13,9 @@ const Accesos = () => {
   const [loading, setLoading] = useState(false);
 
   const roles = [
-    {
-      idRol: 1,
-      nombreRol: 'Admin'
-    },
-    {
-      idRol: 2,
-      nombreRol: 'Externo'
-    },
-    {
-      idRol: 4,
-      nombreRol: 'Administrador de Roles'
-    }
+    { idRol: 1, nombreRol: 'Admin' },
+    { idRol: 2, nombreRol: 'Externo' },
+    { idRol: 4, nombreRol: 'Administrador de Roles' }
   ];
 
   const [formData, setFormData] = useState({
@@ -32,6 +23,16 @@ const Accesos = () => {
     idRol: '',
     idCesfam: '',
     idHospital: ''
+  });
+
+  // -------------------------------------------------------------
+  // Estado de los filtros
+  // -------------------------------------------------------------
+  const [filtros, setFiltros] = useState({
+    idPersona: '',
+    idRol: '',
+    tipoCentro: '',   // '' | 'cesfam' | 'hospital'
+    idCentro: ''      // idCesfam o idHospital según tipoCentro
   });
 
   useEffect(() => {
@@ -57,10 +58,7 @@ const Accesos = () => {
             : []
         );
       } else {
-        console.warn(
-          'GET /persona no disponible en el backend:',
-          personasRes.reason
-        );
+        console.warn('GET /persona no disponible en el backend:', personasRes.reason);
         setPersonas([]);
       }
 
@@ -71,10 +69,7 @@ const Accesos = () => {
             : []
         );
       } else {
-        console.warn(
-          'GET /cesfam/0 falló:',
-          cesfamsRes.reason
-        );
+        console.warn('GET /cesfam/0 falló:', cesfamsRes.reason);
         setCesfams([]);
       }
 
@@ -85,15 +80,11 @@ const Accesos = () => {
             : []
         );
       } else {
-        console.warn(
-          'GET /hospital/0 falló:',
-          hospitalesRes.reason
-        );
+        console.warn('GET /hospital/0 falló:', hospitalesRes.reason);
         setHospitales([]);
       }
     } catch (error) {
       console.error(error);
-
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -223,18 +214,9 @@ const Accesos = () => {
     }
 
     const payload = {
-      idCesfam:
-        tipoCentro === 'cesfam'
-          ? Number(formData.idCesfam)
-          : 0,
-
-      idHospital:
-        tipoCentro === 'hospital'
-          ? Number(formData.idHospital)
-          : 0,
-
+      idCesfam: tipoCentro === 'cesfam' ? Number(formData.idCesfam) : 0,
+      idHospital: tipoCentro === 'hospital' ? Number(formData.idHospital) : 0,
       idPersona: Number(formData.idPersona),
-
       idRol: Number(formData.idRol)
     };
 
@@ -242,15 +224,12 @@ const Accesos = () => {
 
     try {
       const response = await api.post('/acceso', payload);
-
       const data = response.data;
 
       Swal.fire({
         icon: 'success',
         title: 'Acceso creado',
-        text:
-          data.mensaje ||
-          'El acceso fue creado correctamente.'
+        text: data.mensaje || 'El acceso fue creado correctamente.'
       });
 
       setFormData({
@@ -318,13 +297,6 @@ const Accesos = () => {
       const cesfam = Number(acceso.idCesfam) || 0;
       const hospital = Number(acceso.idHospital) || 0;
 
-      console.log('Eliminando acceso:', {
-        persona,
-        rol,
-        cesfam,
-        hospital
-      });
-
       const response = await api.delete(
         `/acceso/${persona}/${rol}/${cesfam}/${hospital}`
       );
@@ -356,7 +328,6 @@ const Accesos = () => {
           text: detalle || 'No se pudo eliminar el acceso.'
         });
       }
-
     } finally {
       setLoading(false);
     }
@@ -367,10 +338,78 @@ const Accesos = () => {
       (item) => item.idRol === Number(idRol)
     );
 
-    return rol
-      ? rol.nombreRol
-      : 'Desconocido';
+    return rol ? rol.nombreRol : 'Desconocido';
   };
+
+  // -------------------------------------------------------------
+  // Handlers de filtros
+  // -------------------------------------------------------------
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+
+    setFiltros((prev) => {
+      // Al cambiar el tipo de centro, reseteamos el centro específico
+      if (name === 'tipoCentro') {
+        return {
+          ...prev,
+          tipoCentro: value,
+          idCentro: ''
+        };
+      }
+      return { ...prev, [name]: value };
+    });
+  };
+
+  const limpiarFiltros = () => {
+    setFiltros({
+      idPersona: '',
+      idRol: '',
+      tipoCentro: '',
+      idCentro: ''
+    });
+  };
+
+  // -------------------------------------------------------------
+  // Aplicar filtros al listado
+  // -------------------------------------------------------------
+  const accesosFiltrados = useMemo(() => {
+    return accesos.filter((acceso) => {
+      if (
+        filtros.idPersona &&
+        Number(acceso.idPersona) !== Number(filtros.idPersona)
+      ) {
+        return false;
+      }
+
+      if (
+        filtros.idRol &&
+        Number(acceso.idRol) !== Number(filtros.idRol)
+      ) {
+        return false;
+      }
+
+      if (filtros.tipoCentro) {
+        const tipo = (acceso.tipoCentro || '').toLowerCase();
+
+        if (tipo !== filtros.tipoCentro) {
+          return false;
+        }
+      }
+
+      if (filtros.tipoCentro && filtros.idCentro) {
+        const id =
+          filtros.tipoCentro === 'cesfam'
+            ? Number(acceso.idCesfam)
+            : Number(acceso.idHospital);
+
+        if (id !== Number(filtros.idCentro)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [accesos, filtros]);
 
   const rolSeleccionado = Number(formData.idRol);
 
@@ -385,10 +424,7 @@ const Accesos = () => {
         fontFamily: 'Arial, sans-serif'
       }}
     >
-      <LoadingOverlay
-        visible={loading}
-        texto="Cargando..."
-      />
+      <LoadingOverlay visible={loading} texto="Cargando..." />
 
       <h2>Administración de Accesos</h2>
 
@@ -414,10 +450,7 @@ const Accesos = () => {
               onChange={handleChange}
               style={{ width: '100%' }}
             >
-              <option value="">
-                Seleccione una persona
-              </option>
-
+              <option value="">Seleccione una persona</option>
               {personas.map((persona) => (
                 <option
                   key={persona.idPersona}
@@ -444,15 +477,9 @@ const Accesos = () => {
               onChange={handleRolChange}
               style={{ width: '100%' }}
             >
-              <option value="">
-                Seleccione un rol
-              </option>
-
+              <option value="">Seleccione un rol</option>
               {roles.map((rol) => (
-                <option
-                  key={rol.idRol}
-                  value={rol.idRol}
-                >
+                <option key={rol.idRol} value={rol.idRol}>
                   {rol.nombreRol}
                 </option>
               ))}
@@ -476,23 +503,12 @@ const Accesos = () => {
                   rolSeleccionado !== 4
                     ? 'var(--text-muted)'
                     : 'var(--text-h)',
-                cursor:
-                  rolSeleccionado !== 4
-                    ? 'not-allowed'
-                    : 'pointer'
+                cursor: rolSeleccionado !== 4 ? 'not-allowed' : 'pointer'
               }}
             >
-              <option value="">
-                Seleccione un tipo
-              </option>
-
-              <option value="cesfam">
-                CESFAM
-              </option>
-
-              <option value="hospital">
-                Hospital
-              </option>
+              <option value="">Seleccione un tipo</option>
+              <option value="cesfam">CESFAM</option>
+              <option value="hospital">Hospital</option>
             </select>
           </div>
 
@@ -506,15 +522,9 @@ const Accesos = () => {
                 onChange={handleChange}
                 style={{ width: '100%' }}
               >
-                <option value="">
-                  Seleccione un CESFAM
-                </option>
-
+                <option value="">Seleccione un CESFAM</option>
                 {cesfams.map((cesfam) => (
-                  <option
-                    key={cesfam.idCesfam}
-                    value={cesfam.idCesfam}
-                  >
+                  <option key={cesfam.idCesfam} value={cesfam.idCesfam}>
                     {cesfam.nombreCesfam}
                   </option>
                 ))}
@@ -538,15 +548,9 @@ const Accesos = () => {
                 onChange={handleChange}
                 style={{ width: '100%' }}
               >
-                <option value="">
-                  Seleccione un Hospital
-                </option>
-
+                <option value="">Seleccione un Hospital</option>
                 {hospitales.map((hospital) => (
-                  <option
-                    key={hospital.idHospital}
-                    value={hospital.idHospital}
-                  >
+                  <option key={hospital.idHospital} value={hospital.idHospital}>
                     {hospital.nombreHospital}
                   </option>
                 ))}
@@ -569,9 +573,7 @@ const Accesos = () => {
               fontWeight: 'bold'
             }}
           >
-            {loading
-              ? 'Creando...'
-              : 'Crear Acceso'}
+            {loading ? 'Creando...' : 'Crear Acceso'}
           </button>
         </form>
       </div>
@@ -579,10 +581,142 @@ const Accesos = () => {
       <div>
         <h3>Accesos Existentes</h3>
 
+        {/* =====================================================
+            FILTROS
+           ===================================================== */}
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            backgroundColor: 'var(--surface)',
+            borderRadius: '8px',
+            padding: '20px',
+            marginBottom: '20px'
+          }}
+        >
+          <h4 style={{ marginTop: 0 }}>Filtros</h4>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '15px'
+            }}
+          >
+            {/* Filtro 1: Persona */}
+            <div>
+              <label>Persona:</label>
+              <select
+                name="idPersona"
+                value={filtros.idPersona}
+                onChange={handleFiltroChange}
+                style={{ width: '100%' }}
+              >
+                <option value="">Todas las personas</option>
+                {personas.map((persona) => (
+                  <option key={persona.idPersona} value={persona.idPersona}>
+                    {persona.nombrePersona} - {persona.rut}-{persona.dv}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro 2: Rol */}
+            <div>
+              <label>Rol:</label>
+              <select
+                name="idRol"
+                value={filtros.idRol}
+                onChange={handleFiltroChange}
+                style={{ width: '100%' }}
+              >
+                <option value="">Todos los roles</option>
+                {roles.map((rol) => (
+                  <option key={rol.idRol} value={rol.idRol}>
+                    {rol.nombreRol}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro 3: Tipo de Centro */}
+            <div>
+              <label>Tipo de Centro:</label>
+              <select
+                name="tipoCentro"
+                value={filtros.tipoCentro}
+                onChange={handleFiltroChange}
+                style={{ width: '100%' }}
+              >
+                <option value="">Todos los tipos</option>
+                <option value="cesfam">CESFAM</option>
+                <option value="hospital">Hospital</option>
+              </select>
+            </div>
+
+            {/* Filtro 4: Centro específico (condicional) */}
+            {filtros.tipoCentro === 'cesfam' && (
+              <div>
+                <label>CESFAM:</label>
+                <select
+                  name="idCentro"
+                  value={filtros.idCentro}
+                  onChange={handleFiltroChange}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Todos los CESFAM</option>
+                  {cesfams.map((cesfam) => (
+                    <option key={cesfam.idCesfam} value={cesfam.idCesfam}>
+                      {cesfam.nombreCesfam}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {filtros.tipoCentro === 'hospital' && (
+              <div>
+                <label>Hospital:</label>
+                <select
+                  name="idCentro"
+                  value={filtros.idCentro}
+                  onChange={handleFiltroChange}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Todos los hospitales</option>
+                  {hospitales.map((hospital) => (
+                    <option
+                      key={hospital.idHospital}
+                      value={hospital.idHospital}
+                    >
+                      {hospital.nombreHospital}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: '15px', textAlign: 'right' }}>
+            <button
+              type="button"
+              onClick={limpiarFiltros}
+              style={{
+                padding: '8px 16px',
+                cursor: 'pointer'
+              }}
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        </div>
+
+        {/* =====================================================
+            TABLA
+           ===================================================== */}
         {accesos.length === 0 ? (
-          <p>
-            No existen accesos registrados.
-          </p>
+          <p>No existen accesos registrados.</p>
+        ) : accesosFiltrados.length === 0 ? (
+          <p>No hay accesos que coincidan con los filtros aplicados.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table
@@ -594,68 +728,36 @@ const Accesos = () => {
             >
               <thead>
                 <tr>
-                  <th style={estiloTh}>
-                    Estado
-                  </th>
-
-                  <th style={estiloTh}>
-                    Persona
-                  </th>
-
-                  <th style={estiloTh}>
-                    Rol
-                  </th>
-
-                  <th style={estiloTh}>
-                    ID Centro
-                  </th>
-
-                  <th style={estiloTh}>
-                    Centro
-                  </th>
-
-                  <th style={estiloTh}>
-                    Tipo
-                  </th>
-
-                  <th style={estiloTh}>
-                    Acción
-                  </th>
+                  <th style={estiloTh}>Estado</th>
+                  <th style={estiloTh}>Persona</th>
+                  <th style={estiloTh}>Rol</th>
+                  <th style={estiloTh}>ID Centro</th>
+                  <th style={estiloTh}>Centro</th>
+                  <th style={estiloTh}>Tipo</th>
+                  <th style={estiloTh}>Acción</th>
                 </tr>
               </thead>
 
               <tbody>
-                {accesos.map((acceso, index) => (
+                {accesosFiltrados.map((acceso, index) => (
                   <tr
                     key={`${acceso.idPersona}-${acceso.idRol}-${acceso.idCesfam || 0}-${acceso.idHospital || 0}-${index}`}
                   >
                     <td style={estiloTd}>
-                      {acceso.activo === 'S'
-                        ? 'Activo'
-                        : 'Inactivo'}
+                      {acceso.activo === 'S' ? 'Activo' : 'Inactivo'}
                     </td>
 
-                    <td style={estiloTd}>
-                      {acceso.nombrePersona}
-                    </td>
+                    <td style={estiloTd}>{acceso.nombrePersona}</td>
 
                     <td style={estiloTd}>
-                      {obtenerNombreRol(
-                        acceso.idRol
-                      )}
+                      {obtenerNombreRol(acceso.idRol)}
                     </td>
 
-                    <td style={estiloTd}>
-                      {acceso.idCentro}
-                    </td>
+                    <td style={estiloTd}>{acceso.idCentro}</td>
 
-                    <td style={estiloTd}>
-                      {acceso.nombreCentro}
-                    </td>
+                    <td style={estiloTd}>{acceso.nombreCentro}</td>
 
-                    <td style={estiloTd}>
-                      {acceso.tipoCentro}
-                    </td>
+                    <td style={estiloTd}>{acceso.tipoCentro}</td>
 
                     <td
                       style={{
@@ -665,9 +767,7 @@ const Accesos = () => {
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          eliminarAcceso(acceso)
-                        }
+                        onClick={() => eliminarAcceso(acceso)}
                         title="Eliminar acceso"
                         style={{
                           border: 'none',

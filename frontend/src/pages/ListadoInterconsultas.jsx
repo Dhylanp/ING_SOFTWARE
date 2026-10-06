@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import TablaInterconsultas from '../components/TablaInterconsultas';
 
 const estadosDisponibles = [
@@ -8,7 +8,6 @@ const estadosDisponibles = [
   { id: 4, nombre: 'Enviada' },
 ];
 
-// estados = lista de ids marcados; desde/hasta = fechas en formato YYYY-MM-DD ('' = sin filtrar)
 const filtrosIniciales = { estados: [], prioridad: 0, desde: '', hasta: '' };
 
 export default function ListadoInterconsultas() {
@@ -22,7 +21,6 @@ export default function ListadoInterconsultas() {
     });
   };
 
-  // marca o desmarca un estado de la lista
   const toggleEstado = (id) => {
     const nuevosEstados = filtros.estados.includes(id)
       ? filtros.estados.filter((e) => e !== id)
@@ -34,16 +32,18 @@ export default function ListadoInterconsultas() {
     setFiltros(filtrosIniciales);
   };
 
-  // las fechas YYYY-MM-DD se pueden comparar directamente como texto
   const fechasInvalidas = Boolean(
     filtros.desde && filtros.hasta && filtros.desde > filtros.hasta
   );
   const estiloFecha = fechasInvalidas ? { borderColor: 'var(--error-text)' } : {};
 
+  // FIX: memoizar el objeto de filtros para que la referencia no cambie en
+  // cada render y el useEffect del hijo no dispare peticiones innecesarias.
+  const filtrosMemo = useMemo(() => filtros, [filtros]);
+
   return (
     <div style={{ maxWidth: '900px', margin: '40px auto', padding: '20px' }}>
 
-      {/*Prioridad y limpiar filtros*/}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
         <select name="prioridad" value={filtros.prioridad} onChange={handleChange}>
           <option value={0}>Todas las prioridades</option>
@@ -54,7 +54,6 @@ export default function ListadoInterconsultas() {
         <button onClick={limpiarFiltros}>Limpiar filtros</button>
       </div>
 
-      {/*Estados (se pueden marcar varios)*/}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', marginBottom: '12px' }}>
         <span>Estados:</span>
         {estadosDisponibles.map((estado) => (
@@ -69,7 +68,6 @@ export default function ListadoInterconsultas() {
         ))}
       </div>
 
-      {/*Rango de fechas*/}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           Desde
@@ -87,8 +85,7 @@ export default function ListadoInterconsultas() {
       )}
 
       <div style={{ marginTop: '20px' }}>
-        {/*si las fechas son inválidas no se consulta la API*/}
-        {!fechasInvalidas && <TablaInterconsultas filtros={filtros} />}
+        {!fechasInvalidas && <TablaInterconsultas filtros={filtrosMemo} />}
       </div>
     </div>
   );
