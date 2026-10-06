@@ -4,3 +4,4 @@ mysql-connector-python==9.1.0
 bcrypt==4.2.0
 pydantic==2.9.2
 python-dotenv==1.0.1
+python-multipart==0.0.12
