@@ -5,6 +5,10 @@ from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("api-lista-espera")
 
 app = FastAPI(title="API Lista de Espera")
 
@@ -185,6 +189,7 @@ def login(datos: Login):
         raise
 
     except Exception as e:
+        logger.exception("Error en /login")
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -239,6 +244,7 @@ def creaPersona(persona: personaEntrada):
     except Exception as e:
         if conexion:
             conexion.rollback()
+        logger.exception("Error en /persona")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -266,6 +272,7 @@ def obtienePersonas():
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /persona")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -290,6 +297,7 @@ def obtieneRoles():
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /rol")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -323,6 +331,7 @@ def creaFormulario(formulario: formularioEntrada):
     except Exception as e:
         if conexion:
             conexion.rollback()
+        logger.exception("Error en POST /formulario")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -394,6 +403,7 @@ def creaAcceso(acceso: accesoEntrada):
     except Exception as e:
         if conexion:
             conexion.rollback()
+        logger.exception("Error en POST /acceso")
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:
@@ -419,6 +429,7 @@ def obtieneRegiones():
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /region")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -448,6 +459,7 @@ def obtieneComunas(region: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /comuna/{region}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -477,6 +489,7 @@ def obtieneHospitales(comuna: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /hospital/{comuna}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -506,6 +519,7 @@ def obtieneCesfams(comuna: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /cesfam/{comuna}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -547,6 +561,7 @@ def obtieneDatosContacto(persona: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /contactos/{persona}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -620,6 +635,7 @@ def comparaDatosPersona(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /comparaDatos")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -634,18 +650,20 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
     cursor = None
     try:
         conexion = get_conexion()
+        # FIX: se corrigió el JOIN roto. comuna no tiene idCesfam; hay que pasar
+        # por cesfam para llegar al nombre del CESFAM (que es lo que espera el front).
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
-                   c.nombreComuna,
+                   ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
                    f.prioridadClinica
             FROM formulario f
-            LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
-            LEFT JOIN hospital h ON f.idHospital = h.idHospital
-            LEFT JOIN estados e ON f.idEstado = e.idEstado
+            LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -683,6 +701,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /formulario/{...}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -721,18 +740,21 @@ def filtraFormularios(
             )
 
         conexion = get_conexion()
+        # FIX: se corrigió el JOIN roto. Antes era "comuna c ON f.idCesfam = c.idCesfam"
+        # (columna inexistente). Ahora se une cesfam y se devuelve nombreCesfam,
+        # que es lo que renderiza la tabla del frontend.
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
-                   c.nombreComuna,
+                   ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
                    f.prioridadClinica
             FROM formulario f
-            LEFT JOIN persona p ON f.idPersona = p.idPersona
-            LEFT JOIN comuna c ON f.idCesfam = c.idCesfam
-            LEFT JOIN hospital h ON f.idHospital = h.idHospital
-            LEFT JOIN estados e ON f.idEstado = e.idEstado
+            LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -779,6 +801,7 @@ def filtraFormularios(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /formulario/filtrar")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -850,6 +873,7 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Error en GET /Acceso/{...}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:

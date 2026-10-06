@@ -5,6 +5,7 @@ import {
   getNombreRol,
   getDescripcionRol
 } from '../context/AuthContext';
+import BotonContacto from '../components/BotonContacto';
 
 const UserWidget = () => {
   const { usuario, logout, tieneRol } = useAuth();
@@ -122,6 +123,27 @@ const UserWidget = () => {
               etiqueta="Rol de ingreso"
               valor={getNombreRol(sesion.rolActual)}
             />
+
+            {/* 👇 Botón de contacto debajo de Rol de ingreso */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '6px 0',
+                fontSize: '13px',
+                borderTop: '1px dashed var(--border)',
+                marginTop: '6px'
+              }}
+            >
+              <span style={{ color: 'var(--text-muted)' }}>
+                Datos de contacto:
+              </span>
+              <BotonContacto
+                idPersona={sesion.idPersona}
+                nombrePersona={sesion.nombrePersona}
+              />
+            </div>
 
             <h4
               style={{
