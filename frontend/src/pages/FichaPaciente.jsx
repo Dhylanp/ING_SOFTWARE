@@ -7,7 +7,7 @@ const TEL_REGEX = /^9\d{8}$/;
 const CORREO_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const CORREO_MAX = 50;
 const CALLE_MIN = 3;
-const CALLE_MAX = 100;
+const CALLE_MAX = 50;
 const MAX_TELEFONOS = 5;
 const MAX_CORREOS = 5;
 
