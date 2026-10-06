@@ -40,7 +40,17 @@ const limpiarCorreo = (texto) => texto.trim().toLowerCase();
 // quita espacios sobrantes de la calle
 const limpiarCalle = (texto) => texto.split(/\s+/).filter(Boolean).join(' ');
 
-const erroresVacios = { calle: '', idComuna: '', telefonos: [], correos: [] };
+const erroresVacios = {
+    calle: '',
+    idComuna: '',
+    telefonos: [],
+    correos: [],
+    telefonosApi: '', // mensaje de la API para toda la lista de teléfonos
+    correosApi: '',   // mensaje de la API para toda la lista de correos
+};
+
+// los validadores de la API anteponen "Value error, " a sus mensajes
+const quitarPrefijo = (msg) => String(msg).replace(/^Value error, /, '');
 
 // ---------- validaciones por campo ----------
 // cada una devuelve el mensaje de error, o '' si el valor está bien
@@ -101,6 +111,7 @@ export default function FichaPaciente() {
         correos: [''],
     });
     const [errores, setErrores] = useState(erroresVacios);
+    const [guardando, setGuardando] = useState(false);
 
     // busca al paciente por RUT (ignora puntos y espacios)
     const rutLimpio = rut.replace(/[.\s]/g, '').toLowerCase();
@@ -241,7 +252,11 @@ export default function FichaPaciente() {
     const cambiarItem = (clave, indice, valor) => {
         const nuevaLista = formEdicion[clave].map((v, i) => (i === indice ? valor : v));
         setFormEdicion({ ...formEdicion, [clave]: nuevaLista });
-        setErrores({ ...errores, [clave]: erroresDeLista(clave, nuevaLista, false) });
+        setErrores({
+            ...errores,
+            [clave]: erroresDeLista(clave, nuevaLista, false),
+            [`${clave}Api`]: '',
+        });
     };
 
     const agregarItem = (clave) => {
@@ -251,7 +266,11 @@ export default function FichaPaciente() {
     const quitarItem = (clave, indice) => {
         const nuevaLista = formEdicion[clave].filter((_, i) => i !== indice);
         setFormEdicion({ ...formEdicion, [clave]: nuevaLista });
-        setErrores({ ...errores, [clave]: erroresDeLista(clave, nuevaLista, false) });
+        setErrores({
+            ...errores,
+            [clave]: erroresDeLista(clave, nuevaLista, false),
+            [`${clave}Api`]: '',
+        });
     };
 
     // revisión completa al guardar (aquí sí se exigen las filas vacías)
@@ -280,11 +299,12 @@ export default function FichaPaciente() {
         correos: formEdicion.correos.map(limpiarCorreo),
     });
 
-    const handleGuardar = (e) => {
+    const handleGuardar = async (e) => {
         e.preventDefault();
+        if (guardando) return;
 
         const { nuevos, hayError } = validar();
-        setErrores(nuevos);
+        setErrores({ ...erroresVacios, ...nuevos });
 
         // si hay errores no se envía nada
         if (hayError) {
@@ -296,13 +316,100 @@ export default function FichaPaciente() {
             return;
         }
 
-        // TEMPORAL (paso 2): todavía no se guarda, el PATCH viene en el paso 3
-        console.log('[FichaPaciente] Cuerpo para el PATCH:', armarCuerpo());
-        Swal.fire({
-            icon: 'info',
-            title: 'Validación correcta',
-            text: 'Los datos son válidos. El guardado se agrega en el siguiente paso.'
-        });
+        const cuerpo = armarCuerpo();
+        setGuardando(true);
+
+        try {
+            const respuesta = await api.patch(`/contactos/${idPaciente}`, cuerpo);
+
+            // la API responde igual que el GET: una lista con un solo objeto
+            const actualizado = Array.isArray(respuesta.data) ? respuesta.data[0] : null;
+            if (actualizado) setContacto(actualizado);
+
+            // la respuesta no trae idComuna, así que usamos el que enviamos
+            setPersonas((anteriores) =>
+                anteriores.map((p) =>
+                    p.idPersona === idPaciente
+                        ? { ...p, calle: cuerpo.calle, idComuna: cuerpo.idComuna }
+                        : p
+                )
+            );
+
+            setEditando(false);
+            setErrores(erroresVacios);
+
+            await Swal.fire({
+                icon: 'success',
+                title: 'Datos actualizados',
+                text: 'Los datos de contacto se guardaron correctamente.'
+            });
+        } catch (err) {
+            console.error('[FichaPaciente] Error al guardar:', err);
+
+            const status = err.response?.status;
+            const detalle = err.response?.data?.detail;
+
+            // sin respuesta = error de red
+            if (!err.response) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Sin conexión',
+                    text: 'No se pudo conectar con el servidor. Revise su conexión e intente de nuevo.'
+                });
+            } else if (status === 422 && Array.isArray(detalle)) {
+                // cada error trae loc: ["body", "campo"]; ubicamos el mensaje por campo
+                const nuevosApi = { ...erroresVacios };
+                const sinUbicar = [];
+
+                detalle.forEach((item) => {
+                    const campo = item.loc?.[1];
+                    const msg = quitarPrefijo(item.msg);
+
+                    if (campo === 'calle' || campo === 'idComuna') {
+                        nuevosApi[campo] = nuevosApi[campo] || msg;
+                    } else if (campo === 'telefonos' || campo === 'correos') {
+                        nuevosApi[`${campo}Api`] = nuevosApi[`${campo}Api`] || msg;
+                    } else {
+                        sinUbicar.push(msg);
+                    }
+                });
+
+                setErrores(nuevosApi);
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Datos rechazados',
+                    text: sinUbicar.length > 0
+                        ? sinUbicar.join(' ')
+                        : 'El servidor rechazó algunos datos. Revise los campos marcados en rojo.'
+                });
+            } else if (status === 404) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Paciente no encontrado',
+                    text: typeof detalle === 'string'
+                        ? detalle
+                        : 'No se encontró al paciente. Búsquelo nuevamente.'
+                });
+            } else if (status === 400) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Nada que guardar',
+                    text: typeof detalle === 'string'
+                        ? detalle
+                        : 'Debe enviar al menos un campo para actualizar.'
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: typeof detalle === 'string'
+                        ? detalle
+                        : 'No se pudieron guardar los datos. Intente nuevamente.'
+                });
+            }
+        } finally {
+            setGuardando(false);
+        }
     };
 
     // dibuja una lista editable (teléfonos o correos)
@@ -342,6 +449,12 @@ export default function FichaPaciente() {
                     Agregar otro
                 </button>
             )}
+
+            {errores[`${clave}Api`] && (
+                <small className="texto-error" style={estiloMensaje}>
+                    {errores[`${clave}Api`]}
+                </small>
+            )}
         </div>
     );
 
@@ -361,6 +474,7 @@ export default function FichaPaciente() {
                     placeholder="Ej: 12345678-9"
                     value={rut}
                     onChange={(e) => setRut(e.target.value)}
+                    disabled={guardando}
                     style={estiloCampo(Boolean(mensajeRut))}
                 />
                 {mensajeRut && (
@@ -488,11 +602,12 @@ export default function FichaPaciente() {
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button
                                     type="submit"
+                                    disabled={guardando}
                                     style={{ padding: '10px 20px', fontWeight: 'bold' }}
                                 >
-                                    Guardar cambios
+                                    {guardando ? 'Guardando...' : 'Guardar cambios'}
                                 </button>
-                                <button type="button" onClick={cancelarEdicion}>
+                                <button type="button" onClick={cancelarEdicion} disabled={guardando}>
                                     Cancelar
                                 </button>
                             </div>
