@@ -8,9 +8,9 @@ import { useAuth } from '../context/AuthContext';
 // Validaciones (mismas reglas que valida la API)
 // -------------------------------------------------------------
 const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const RE_TELEFONO = /^\+?\d{8,15}$/;
+const RE_TELEFONO = /^\d{9}$/;
 
-const limpiarTelefono = (t) => String(t).replace(/\s+/g, '');
+const limpiarTelefono = (t) => String(t);
 
 const formatearRut = (rut, dv) => {
   if (!rut) return '—';
@@ -156,13 +156,13 @@ const EditarPerfil = () => {
     const valor = limpiarTelefono(nuevoTel);
     if (!valor) return;
     if (!RE_TELEFONO.test(valor)) {
-      Swal.fire({
-        icon: 'warning',
-        title: 'Teléfono no válido',
-        text: 'Usa entre 8 y 15 dígitos. Puede comenzar con +, por ejemplo +56912345678.'
-      });
-      return;
-    }
+    Swal.fire({
+      icon: 'error',
+      title: 'Teléfono no válido',
+      text: 'El teléfono debe tener exactamente 9 dígitos. No se permite +56 ni otros caracteres.'
+    });
+    return;
+  }
     if (telefonos.includes(valor)) {
       Swal.fire({ icon: 'info', title: 'Ese teléfono ya está en tu lista' });
       return;
@@ -353,10 +353,11 @@ const EditarPerfil = () => {
             <div style={estiloFilaAgregar}>
               <input
                 type="tel"
+                maxLength={9}
                 value={nuevoTel}
                 onChange={(e) => setNuevoTel(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarTelefono())}
-                placeholder="+56912345678"
+                placeholder="912345678"
                 aria-label="Nuevo teléfono"
                 style={{ ...estiloInput, margin: 0, flex: 1 }}
               />
@@ -471,7 +472,7 @@ const FilaDato = ({ valor, onQuitar, etiqueta }) => (
       style={{
         border: 'none',
         background: 'transparent',
-        color: '#dc2626',
+        color: 'var(--danger-text)',
         cursor: 'pointer',
         fontWeight: 600,
         fontSize: '13px',
@@ -511,9 +512,9 @@ const estiloFilaAgregar = { display: 'flex', gap: '8px', marginTop: '10px' };
 const estiloAgregar = {
   padding: '9px 16px',
   borderRadius: '8px',
-  border: '1px solid #2563eb',
+  border: '1px solid var(--primary)',
   backgroundColor: 'transparent',
-  color: '#2563eb',
+  color: 'var(--primary)',
   fontWeight: 600,
   fontSize: '13px',
   cursor: 'pointer'
@@ -545,8 +546,8 @@ const estiloGuardar = {
   padding: '10px 20px',
   borderRadius: '8px',
   border: 'none',
-  backgroundColor: '#2563eb',
-  color: '#fff',
+  backgroundColor: 'var(--primary)',
+  color: 'var(--on-primary)',
   fontWeight: 600,
   fontSize: '14px'
 };
