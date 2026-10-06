@@ -116,7 +116,6 @@ const UserWidget = () => {
               Datos de Sesión
             </h3>
 
-            <Dato etiqueta="ID Usuario" valor={sesion.idPersona} />
             <Dato etiqueta="RUT" valor={sesion.rut} />
             <Dato etiqueta="Nombre" valor={sesion.nombrePersona} />
             <Dato
@@ -145,81 +144,6 @@ const UserWidget = () => {
               />
             </div>
 
-            <h4
-              style={{
-                margin: '14px 0 6px',
-                fontSize: '12px',
-                color: 'var(--text-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}
-            >
-              Accesos ({sesion.accesos.length})
-            </h4>
-
-            {sesion.accesos.length > 0 ? (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {sesion.accesos.map((a, i) => (
-                  <li
-                    key={i}
-                    style={{
-                      padding: '10px',
-                      marginBottom: '6px',
-                      backgroundColor: 'var(--surface-alt)',
-                      borderRadius: '6px',
-                      borderLeft: '3px solid var(--primary)'
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 'bold',
-                        marginBottom: '3px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <span>{getNombreRol(a.idRol)}</span>
-                      {Number(a.idRol) === sesion.rolActual && (
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            backgroundColor: 'var(--primary)',
-                            color: 'var(--on-primary)',
-                            padding: '2px 6px',
-                            borderRadius: '8px'
-                          }}
-                        >
-                          ACTUAL
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      {getDescripcionRol(a.idRol)}
-                    </div>
-                    {a.tipoCentro && a.tipoCentro !== 'x' && (
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          color: 'var(--text)',
-                          marginTop: '4px',
-                          paddingTop: '4px',
-                          borderTop: '1px dashed var(--border)'
-                        }}
-                      >
-                        <strong>{a.tipoCentro}:</strong> {a.nombreCentro}{' '}
-                        <span style={{ color: 'var(--text-muted)' }}>(ID {a.idCentro})</span>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
-                Sin accesos registrados
-              </p>
-            )}
-
             {(puedeGestionar || accesoAdmin || accesoExterno) && (
               <>
                 <h4
@@ -228,7 +152,9 @@ const UserWidget = () => {
                     fontSize: '12px',
                     color: 'var(--text-muted)',
                     textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
+                    letterSpacing: '0.5px',
+                    borderBottom: '1px solid var(--border)',
+                    paddingBottom: '4px'
                   }}
                 >
                   Accesos rápidos
@@ -263,14 +189,29 @@ const UserWidget = () => {
             )}
 
             <button
-              onClick={handleLogout}
-              className="btn-peligro"
+              onClick={() => {
+                setAbierto(false);
+                navigate('/EditarPerfil');
+              }}
               style={{
                 width: '100%',
                 marginTop: '14px',
                 padding: '9px',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                backgroundColor: '#2563eb',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer'
               }}
+            >
+              Editar información personal
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="btn-peligro"
+              style={{ width: '100%', marginTop: '8px', padding: '9px', fontWeight: 'bold' }}
             >
               Cerrar sesión
             </button>

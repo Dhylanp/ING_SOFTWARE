@@ -9,6 +9,7 @@ import RegistrarInterconsulta from './pages/RegistrarInterconsulta';
 import GestorRoles from './pages/GestorRoles';
 import UserWidget from './components/UserWidget';
 import FichaPaciente from './pages/FichaPaciente';
+import EditarPerfil from './pages/EditarPerfil';
 
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
@@ -88,6 +89,11 @@ const AppContent = () => {
                     <Route
                         path="/interconsultas"
                         element={<Interconsultas />}
+                    />
+
+                    <Route
+                        path="/EditarPerfil"
+                        element={<EditarPerfil />}
                     />
 
                     <Route
