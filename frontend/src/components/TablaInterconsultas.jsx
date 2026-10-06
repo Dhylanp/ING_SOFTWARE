@@ -8,9 +8,17 @@ const nombresEstado = {
     4: 'Enviada',
 };
 
-// FIX: la API devuelve prioridadClinica como string ('alta'|'media'|'baja').
-// Antes los mapas usaban claves numéricas (1|2|3) y por eso el color y el
-// nombre "bonito" nunca se aplicaban. Ahora se usan claves string.
+// FIX: la API ahora devuelve 'alta'|'media'|'baja', pero por si acaso
+// aceptamos también '1'|'2'|'3' (o mayúsculas).
+const normalizarPrioridad = (valor) => {
+    if (valor === null || valor === undefined) return null;
+    const v = String(valor).trim().toLowerCase();
+    if (v === 'alta'  || v === '1') return 'alta';
+    if (v === 'media' || v === '2') return 'media';
+    if (v === 'baja'  || v === '3') return 'baja';
+    return null;
+};
+
 const nombresPrioridad = {
     alta: 'Alta',
     media: 'Media',
@@ -18,9 +26,9 @@ const nombresPrioridad = {
 };
 
 const estilosPrioridad = {
-    alta: { backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' },
+    alta:  { backgroundColor: 'var(--error-bg)',   color: 'var(--error-text)'   },
     media: { backgroundColor: 'var(--warning-bg)', color: 'var(--warning-text)' },
-    baja: { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)' },
+    baja:  { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)' },
 };
 
 const estiloEtiqueta = {
@@ -48,8 +56,8 @@ export default function TablaInterconsultas({ filtros }) {
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(null);
 
-    // FIX: serializar los filtros como string para usarlo como dependencia
-    // y evitar refetch cuando el padre re-renderiza sin cambiar filtros.
+    // FIX: clave serializada para evitar refetch cuando el padre
+    // re-renderiza sin cambiar realmente los filtros.
     const filtrosKey = useMemo(
         () => JSON.stringify({
             estados: [...filtros.estados].sort(),
@@ -68,8 +76,8 @@ export default function TablaInterconsultas({ filtros }) {
 
                 const params = {};
                 if (filtros.estados.length > 0) params.estados = filtros.estados.join(',');
+
                 if (filtros.prioridad !== 0) {
-                    // filtros.prioridad es 1|2|3 → mapear a 'alta'|'media'|'baja'
                     const map = { 1: 'alta', 2: 'media', 3: 'baja' };
                     const p = map[filtros.prioridad];
                     if (p) params.prioridad = p;
@@ -80,7 +88,7 @@ export default function TablaInterconsultas({ filtros }) {
                 const respuesta = await api.get('/formulario/filtrar', { params });
                 setInterconsultas(respuesta.data);
             } catch (err) {
-                // FIX: log detallado para diagnosticar 500/422/errores de red.
+                // FIX: log detallado para diagnosticar 500/422/red.
                 console.error('Error /formulario/filtrar:', {
                     status: err.response?.status,
                     data: err.response?.data,
@@ -130,7 +138,7 @@ export default function TablaInterconsultas({ filtros }) {
                     </thead>
                     <tbody>
                         {interconsultas.map((item) => {
-                            const prioridad = String(item.prioridadClinica ?? '').toLowerCase();
+                            const prioridad = normalizarPrioridad(item.prioridadClinica);
                             return (
                                 <tr key={item.idFormulario}>
                                     <td style={estiloCelda}>#{item.idFormulario}</td>
@@ -141,9 +149,15 @@ export default function TablaInterconsultas({ filtros }) {
                                     <td style={estiloCelda}>{item.nombreHospital}</td>
                                     <td style={estiloCelda}>{item.nombreEstado}</td>
                                     <td style={estiloCelda}>
-                                        <span style={{ ...estiloEtiqueta, ...(estilosPrioridad[prioridad] || {}) }}>
-                                            {nombresPrioridad[prioridad] ?? item.prioridadClinica}
-                                        </span>
+                                        {prioridad ? (
+                                            <span style={{ ...estiloEtiqueta, ...estilosPrioridad[prioridad] }}>
+                                                {nombresPrioridad[prioridad]}
+                                            </span>
+                                        ) : (
+                                            <span style={estiloEtiqueta}>
+                                                {item.prioridadClinica ?? '—'}
+                                            </span>
+                                        )}
                                     </td>
                                 </tr>
                             );

@@ -37,8 +37,8 @@ export default function ListadoInterconsultas() {
   );
   const estiloFecha = fechasInvalidas ? { borderColor: 'var(--error-text)' } : {};
 
-  // FIX: memoizar el objeto de filtros para que la referencia no cambie en
-  // cada render y el useEffect del hijo no dispare peticiones innecesarias.
+  // FIX: memoizar el objeto de filtros para que la referencia no cambie
+  // en cada render y el useEffect del hijo no dispare peticiones innecesarias.
   const filtrosMemo = useMemo(() => filtros, [filtros]);
 
   return (
