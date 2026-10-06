@@ -5,6 +5,7 @@ from datetime import date
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt
 import os
+import re
 import logging
 import re
 
@@ -1176,5 +1177,188 @@ def eliminaAcceso(
         if cursor:
             cursor.close()
 
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+_RE_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_RE_TELEFONO = re.compile(r"^\+?\d{8,15}$")
+ 
+ 
+class perfilEdicion(BaseModel):
+    calle: str = Field(min_length=1, max_length=100)
+    idComuna: int
+    telefonos: list[str] = Field(default_factory=list)
+    correos: list[str] = Field(default_factory=list)
+ 
+ 
+def _normaliza_telefonos(lista: list[str]) -> list[str]:
+    """Quita espacios, valida formato y elimina duplicados conservando el orden."""
+    resultado: list[str] = []
+    for t in lista:
+        valor = "".join(str(t).split())
+        if not _RE_TELEFONO.match(valor):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Teléfono no válido: '{t}'. Usa entre 8 y 15 dígitos, con + opcional al inicio."
+            )
+        if valor not in resultado:
+            resultado.append(valor)
+    return resultado
+ 
+ 
+def _normaliza_correos(lista: list[str]) -> list[str]:
+    """Valida formato y largo, y elimina duplicados (sin distinguir mayúsculas)."""
+    resultado: list[str] = []
+    vistos: set[str] = set()
+    for c in lista:
+        valor = str(c).strip()
+        if not _RE_CORREO.match(valor) or len(valor) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Correo no válido: '{c}'. Revisa el formato (máximo 50 caracteres)."
+            )
+        if valor.lower() not in vistos:
+            vistos.add(valor.lower())
+            resultado.append(valor)
+    return resultado
+ 
+ 
+def _sincroniza(cursor, tabla: str, columna: str, idPersona: int,
+                nuevos: list[str], ignora_mayusculas: bool = False):
+    """
+    Deja la tabla de contactos de la persona igual a la lista 'nuevos':
+    borra lo que ya no está e inserta lo que es nuevo.
+    'tabla' y 'columna' son constantes del código, nunca vienen del usuario.
+    """
+    cursor.execute(f"SELECT {columna} AS valor FROM {tabla} WHERE idPersona = %s", (idPersona,))
+    existentes = [str(f["valor"]).strip() for f in cursor.fetchall()]
+ 
+    def clave(v: str) -> str:
+        return v.lower() if ignora_mayusculas else v
+ 
+    claves_nuevas = {clave(v) for v in nuevos}
+    claves_existentes = {clave(v) for v in existentes}
+ 
+    for valor in existentes:
+        if clave(valor) not in claves_nuevas:
+            cursor.execute(
+                f"DELETE FROM {tabla} WHERE idPersona = %s AND {columna} = %s",
+                (idPersona, valor)
+            )
+ 
+    for valor in nuevos:
+        if clave(valor) not in claves_existentes:
+            cursor.execute(
+                f"INSERT INTO {tabla} (idPersona, {columna}) VALUES (%s, %s)",
+                (idPersona, valor)
+            )
+ 
+ 
+# ---------- GET /persona/{idPersona}/perfil ----------
+@app.get("/persona/{idPersona}/perfil")
+def obtienePerfil(idPersona: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+ 
+        cursor.execute(
+            """
+            SELECT
+                p.idPersona,
+                p.rut,
+                p.dv,
+                p.nombrePersona,
+                p.fechaNac,
+                p.calle,
+                p.idComuna,
+                c.idRegion
+            FROM persona p
+            LEFT JOIN comuna c ON p.idComuna = c.idComuna
+            WHERE p.idPersona = %s
+            """,
+            (idPersona,)
+        )
+        perfil = cursor.fetchone()
+        if perfil is None:
+            raise HTTPException(status_code=404, detail="Persona no encontrada")
+ 
+        cursor.execute(
+            "SELECT contactos AS valor FROM persona_contactos WHERE idPersona = %s",
+            (idPersona,)
+        )
+        perfil["telefonos"] = [str(f["valor"]).strip() for f in cursor.fetchall()]
+ 
+        cursor.execute(
+            "SELECT correos AS valor FROM persona_correos WHERE idPersona = %s",
+            (idPersona,)
+        )
+        perfil["correos"] = [str(f["valor"]).strip() for f in cursor.fetchall()]
+ 
+        return perfil
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /persona/{idPersona}/perfil")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+ 
+ 
+# ---------- PUT /persona/{idPersona}/perfil ----------
+# Actualiza calle y comuna, y deja los teléfonos y correos exactamente
+# como vienen en la lista (agrega los nuevos, elimina los que faltan).
+# Todo en una sola transacción: o se guarda todo o no se guarda nada.
+# RUT, DV, nombre y fecha de nacimiento NO se tocan.
+@app.put("/persona/{idPersona}/perfil")
+def actualizaPerfil(idPersona: int, datos: perfilEdicion):
+    conexion = None
+    cursor = None
+    try:
+        telefonos = _normaliza_telefonos(datos.telefonos)
+        correos = _normaliza_correos(datos.correos)
+        calle = datos.calle.strip()
+        if not calle:
+            raise HTTPException(status_code=400, detail="La calle no puede estar vacía")
+ 
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+ 
+        cursor.execute("SELECT idPersona FROM persona WHERE idPersona = %s", (idPersona,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Persona no encontrada")
+ 
+        cursor.execute("SELECT idComuna FROM comuna WHERE idComuna = %s", (datos.idComuna,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=400, detail="La comuna indicada no existe")
+ 
+        cursor.execute(
+            "UPDATE persona SET calle = %s, idComuna = %s WHERE idPersona = %s",
+            (calle, datos.idComuna, idPersona)
+        )
+ 
+        _sincroniza(cursor, "persona_contactos", "contactos", idPersona, telefonos)
+        _sincroniza(cursor, "persona_correos", "correos", idPersona, correos, ignora_mayusculas=True)
+ 
+        conexion.commit()
+        return {"codigo": 1, "mensaje": "Información personal actualizada correctamente"}
+ 
+    except HTTPException:
+        if conexion:
+            conexion.rollback()
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en PUT /persona/{idPersona}/perfil")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
