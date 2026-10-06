@@ -22,6 +22,40 @@ app.add_middleware(
 
 
 # ======================================================================
+# Utilidades de prioridad
+# ======================================================================
+# FIX: la BD guarda prioridadClinica como '1'/'2'/'3'.
+# Estas utilidades traducen entre el texto que usa el frontend
+# ('alta'/'media'/'baja') y lo que hay en la base de datos.
+_PRIORIDAD_A_BD = {
+    'alta': '1', 'media': '2', 'baja': '3',
+    '1': '1', '2': '2', '3': '3',
+}
+_PRIORIDAD_DESDE_BD = {
+    '1': 'alta', '2': 'media', '3': 'baja',
+    'alta': 'alta', 'media': 'media', 'baja': 'baja',
+}
+
+
+def normaliza_prioridad_entrada(valor: str) -> str:
+    """Convierte 'alta'|'media'|'baja' (o '1'|'2'|'3') al valor que se guarda en BD."""
+    if valor is None:
+        raise ValueError("prioridad no puede ser nula")
+    v = str(valor).strip().lower()
+    if v not in _PRIORIDAD_A_BD:
+        raise ValueError("prioridad debe ser 'alta', 'media' o 'baja'")
+    return _PRIORIDAD_A_BD[v]
+
+
+def normaliza_prioridad_salida(valor):
+    """Convierte lo que hay en BD ('1'|'2'|'3') a 'alta'|'media'|'baja' para el frontend."""
+    if valor is None:
+        return None
+    v = str(valor).strip().lower()
+    return _PRIORIDAD_DESDE_BD.get(v, v)
+
+
+# ======================================================================
 # Utilidades de contraseña (bcrypt directo, sin passlib)
 # ======================================================================
 def hash_clave(clave: str) -> str:
@@ -103,6 +137,7 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
+    # FIX: se acepta 'alta'|'media'|'baja' (o '1'|'2'|'3') y se normaliza antes del INSERT.
     prioridad: str
 
 
@@ -311,6 +346,12 @@ def creaFormulario(formulario: formularioEntrada):
     conexion = None
     cursor = None
     try:
+        # FIX: normalizar 'alta'|'media'|'baja' (o '1'|'2'|'3') a lo que guarda la BD.
+        try:
+            prioridad_bd = normaliza_prioridad_entrada(formulario.prioridad)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
         query = """
@@ -322,12 +363,14 @@ def creaFormulario(formulario: formularioEntrada):
         valores = (
             formulario.descripcion, formulario.fechaInicio,
             formulario.idPersona, formulario.idCesfam,
-            formulario.idHospital, 1, formulario.prioridad
+            formulario.idHospital, 1, prioridad_bd
         )
         cursor.execute(query, valores)
         conexion.commit()
         return {"codigo": 1, "mensaje": "Éxito para ingresar Formulario"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         if conexion:
             conexion.rollback()
@@ -650,8 +693,8 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
     cursor = None
     try:
         conexion = get_conexion()
-        # FIX: se corrigió el JOIN roto. comuna no tiene idCesfam; hay que pasar
-        # por cesfam para llegar al nombre del CESFAM (que es lo que espera el front).
+        # FIX: JOIN corregido. Antes era "comuna c ON f.idCesfam = c.idCesfam"
+        # (columna inexistente). Ahora se une cesfam y se devuelve nombreCesfam.
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
@@ -684,19 +727,26 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
 
         prioridad_norm = (prioridad or "").strip().lower()
         if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
-            if prioridad_norm not in ("alta", "media", "baja"):
+            # FIX: traducir 'alta'|'media'|'baja' a '1'|'2'|'3' antes de consultar.
+            if prioridad_norm not in _PRIORIDAD_A_BD:
                 raise HTTPException(
                     status_code=400,
                     detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
                 )
             condiciones.append("f.prioridadClinica = %s")
-            filtro.append(prioridad_norm)
+            filtro.append(_PRIORIDAD_A_BD[prioridad_norm])
 
         if condiciones:
             query += " WHERE " + " AND ".join(condiciones)
 
         cursor.execute(query, tuple(filtro))
-        return cursor.fetchall()
+        filas = cursor.fetchall()
+
+        # FIX: normalizar la salida para que el frontend siempre reciba 'alta'/'media'/'baja'.
+        for fila in filas:
+            if 'prioridadClinica' in fila:
+                fila['prioridadClinica'] = normaliza_prioridad_salida(fila['prioridadClinica'])
+        return filas
 
     except HTTPException:
         raise
@@ -740,9 +790,7 @@ def filtraFormularios(
             )
 
         conexion = get_conexion()
-        # FIX: se corrigió el JOIN roto. Antes era "comuna c ON f.idCesfam = c.idCesfam"
-        # (columna inexistente). Ahora se une cesfam y se devuelve nombreCesfam,
-        # que es lo que renderiza la tabla del frontend.
+        # FIX: JOIN corregido (ver nota en obtieneFormularios).
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
                    p.nombrePersona,
@@ -777,13 +825,14 @@ def filtraFormularios(
 
         prioridad_norm = (prioridad or "").strip().lower()
         if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
-            if prioridad_norm not in ("alta", "media", "baja"):
+            # FIX: traducir 'alta'|'media'|'baja' a '1'|'2'|'3' antes de consultar.
+            if prioridad_norm not in _PRIORIDAD_A_BD:
                 raise HTTPException(
                     status_code=400,
                     detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
                 )
             condiciones.append("f.prioridadClinica = %s")
-            filtro.append(prioridad_norm)
+            filtro.append(_PRIORIDAD_A_BD[prioridad_norm])
 
         if desde:
             condiciones.append("f.fechaInicio >= %s")
@@ -796,7 +845,13 @@ def filtraFormularios(
             query += " WHERE " + " AND ".join(condiciones)
 
         cursor.execute(query, tuple(filtro))
-        return cursor.fetchall()
+        filas = cursor.fetchall()
+
+        # FIX: normalizar la salida para que el frontend siempre reciba 'alta'/'media'/'baja'.
+        for fila in filas:
+            if 'prioridadClinica' in fila:
+                fila['prioridadClinica'] = normaliza_prioridad_salida(fila['prioridadClinica'])
+        return filas
 
     except HTTPException:
         raise
