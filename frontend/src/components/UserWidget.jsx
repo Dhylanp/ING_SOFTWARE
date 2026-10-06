@@ -198,8 +198,8 @@ const UserWidget = () => {
                 marginTop: '14px',
                 padding: '9px',
                 fontWeight: 'bold',
-                backgroundColor: '#2563eb',
-                color: '#fff',
+                backgroundColor: 'var(--primary)',
+                color: 'var(--on-primary)',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer'
