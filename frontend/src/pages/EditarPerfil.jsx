@@ -482,6 +482,8 @@ const CampoFijo = ({ etiqueta, valor }) => (
   </div>
 );
 
+const ANCHO_BADGE = '104px'; // ancho fijo para alinear los números
+
 const FilaDato = ({ valor, onQuitar, etiqueta, badge }) => (
   <div
     style={{
@@ -496,24 +498,35 @@ const FilaDato = ({ valor, onQuitar, etiqueta, badge }) => (
       fontSize: '14px'
     }}
   >
-    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', flex: 1 }}>
       {badge && (
         <span
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: ANCHO_BADGE,
+            boxSizing: 'border-box',
             fontSize: '11px',
             fontWeight: 700,
             padding: '2px 8px',
             borderRadius: '999px',
             backgroundColor: badge === 'Emergencia' ? 'var(--error-bg)' : 'var(--primary-soft)',
             color: badge === 'Emergencia' ? 'var(--error-text)' : 'var(--primary)',
-            flexShrink: 0
+            flexShrink: 0,
+            whiteSpace: 'nowrap'
           }}
         >
           {badge}
         </span>
       )}
       <span
-        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontVariantNumeric: 'tabular-nums'
+        }}
         title={valor}
       >
         {valor}

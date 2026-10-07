@@ -4,7 +4,6 @@ import api from '../api/axios';
 
 // -------------------------------------------------------------
 // Helper: copia texto al portapapeles
-// Usa la API moderna con fallback para navegadores viejos
 // -------------------------------------------------------------
 const copiarAlPortapapeles = async (texto) => {
   try {
@@ -12,7 +11,6 @@ const copiarAlPortapapeles = async (texto) => {
       await navigator.clipboard.writeText(texto);
       return true;
     }
-    // Fallback clásico
     const textarea = document.createElement('textarea');
     textarea.value = texto;
     textarea.style.position = 'fixed';
@@ -28,6 +26,26 @@ const copiarAlPortapapeles = async (texto) => {
     return false;
   }
 };
+
+// -------------------------------------------------------------
+// Parseo de teléfonos: soporta "912345678" o "912345678:P"
+// -------------------------------------------------------------
+const parsearTelefono = (raw) => {
+  if (!raw) return null;
+  const texto = String(raw).trim();
+  if (!texto) return null;
+
+  const idx = texto.lastIndexOf(':');
+  if (idx > 0) {
+    const numero = texto.slice(0, idx).trim();
+    const tipoRaw = texto.slice(idx + 1).trim().toUpperCase();
+    const tipo = tipoRaw === 'E' ? 'E' : 'P';
+    if (numero) return { numero, tipo };
+  }
+  return { numero: texto, tipo: 'P' };
+};
+
+const ANCHO_BADGE = '104px'; // ancho fijo para alinear los números
 
 const BotonContacto = ({ idPersona, nombrePersona }) => {
   const [abierto, setAbierto] = useState(false);
@@ -80,7 +98,6 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
     setDatos(null);
   };
 
-  // Cerrar con tecla Escape
   useEffect(() => {
     if (!abierto) return;
     const onKey = (e) => {
@@ -98,7 +115,9 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
       .filter(Boolean);
   };
 
-  const telefonos = separar(datos?.Contactos);
+  const telefonos = separar(datos?.Contactos)
+    .map(parsearTelefono)
+    .filter(Boolean);
   const correos = separar(datos?.Correos);
 
   return (
@@ -127,7 +146,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'scale(1.08)';
           e.currentTarget.style.backgroundColor = 'var(--surface-alt)';
-          e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.12)';
+          e.currentTarget.style.boxShadow = '0 4px 10px var(--shadow)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'scale(1)';
@@ -158,7 +177,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.55)',
+            backgroundColor: 'color-mix(in srgb, var(--text-h) 55%, transparent)',
             backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
@@ -178,13 +197,13 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
               maxWidth: '460px',
               maxHeight: '88vh',
               overflow: 'hidden',
-              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.35)',
+              boxShadow: 'var(--shadow)',
               border: '1px solid var(--border)',
               display: 'flex',
               flexDirection: 'column'
             }}
           >
-            {/* Header con gradiente */}
+            {/* Header */}
             <div
               style={{
                 display: 'flex',
@@ -192,8 +211,8 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                 justifyContent: 'space-between',
                 padding: '18px 22px',
                 background:
-                  'linear-gradient(135deg, var(--primary) 0%, var(--primary-soft, var(--primary)) 100%)',
-                color: 'var(--on-primary, #fff)'
+                  'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
+                color: 'var(--on-primary)'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -202,7 +221,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                     width: '38px',
                     height: '38px',
                     borderRadius: '50%',
-                    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+                    backgroundColor: 'color-mix(in srgb, var(--on-primary) 22%, transparent)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -250,7 +269,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                 aria-label="Cerrar"
                 style={{
                   border: 'none',
-                  background: 'rgba(255, 255, 255, 0.15)',
+                  background: 'color-mix(in srgb, var(--on-primary) 18%, transparent)',
                   color: 'inherit',
                   fontSize: '20px',
                   lineHeight: 1,
@@ -264,10 +283,12 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                   transition: 'background-color 0.15s ease'
                 }}
                 onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.28)')
+                  (e.currentTarget.style.backgroundColor =
+                    'color-mix(in srgb, var(--on-primary) 30%, transparent)')
                 }
                 onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.15)')
+                  (e.currentTarget.style.backgroundColor =
+                    'color-mix(in srgb, var(--on-primary) 18%, transparent)')
                 }
               >
                 ×
@@ -353,7 +374,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                     ) : (
                       telefonos.map((tel, i) => (
                         <div
-                          key={`${tel}-${i}`}
+                          key={`${tel.numero}-${i}`}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -362,12 +383,12 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                             padding: '9px 12px',
                             borderRadius: '8px',
                             backgroundColor: 'var(--surface-alt)',
-                            marginBottom: '6px',
-                            transition: 'background-color 0.15s ease'
+                            marginBottom: '6px'
                           }}
                         >
+                          <Badge tipo={tel.tipo} />
                           <a
-                            href={`tel:${tel.replace(/\s/g, '')}`}
+                            href={`tel:${tel.numero.replace(/\s/g, '')}`}
                             style={{
                               color: 'var(--text-h)',
                               textDecoration: 'none',
@@ -375,13 +396,14 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                               flex: 1,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
+                              whiteSpace: 'nowrap',
+                              fontVariantNumeric: 'tabular-nums'
                             }}
-                            title={tel}
+                            title={tel.numero}
                           >
-                            {tel}
+                            {tel.numero}
                           </a>
-                          <BotonCopiar valor={tel} etiqueta="teléfono" />
+                          <BotonCopiar valor={tel.numero} etiqueta="teléfono" />
                         </div>
                       ))
                     )}
@@ -410,8 +432,7 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
                             padding: '9px 12px',
                             borderRadius: '8px',
                             backgroundColor: 'var(--surface-alt)',
-                            marginBottom: '6px',
-                            transition: 'background-color 0.15s ease'
+                            marginBottom: '6px'
                           }}
                         >
                           <a
@@ -471,7 +492,6 @@ const BotonContacto = ({ idPersona, nombrePersona }) => {
         </div>
       )}
 
-      {/* Keyframes inline para fadeIn y spinner */}
       <style>
         {`
           @keyframes fadeIn {
@@ -532,6 +552,31 @@ const Fila = ({ etiqueta, valor }) => (
   </div>
 );
 
+const Badge = ({ tipo }) => {
+  const esEmergencia = tipo === 'E';
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: ANCHO_BADGE,
+        boxSizing: 'border-box',
+        fontSize: '11px',
+        fontWeight: 700,
+        padding: '2px 8px',
+        borderRadius: '999px',
+        backgroundColor: esEmergencia ? 'var(--error-bg)' : 'var(--primary-soft)',
+        color: esEmergencia ? 'var(--error-text)' : 'var(--primary)',
+        flexShrink: 0,
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {esEmergencia ? 'Emergencia' : 'Personal'}
+    </span>
+  );
+};
+
 const BotonCopiar = ({ valor, etiqueta }) => {
   const [copiado, setCopiado] = useState(false);
 
@@ -580,9 +625,7 @@ const BotonCopiar = ({ valor, etiqueta }) => {
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.backgroundColor = 'transparent';
-        e.currentTarget.style.color = copiado
-          ? 'var(--primary)'
-          : 'var(--text-muted)';
+        e.currentTarget.style.color = copiado ? 'var(--primary)' : 'var(--text-muted)';
       }}
     >
       {copiado ? (
