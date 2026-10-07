@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import api from '../api/axios';
+import { Link } from 'react-router-dom';
 
 const nombresEstado = {
     1: 'Registrada',
@@ -13,9 +14,9 @@ const nombresEstado = {
 const normalizarPrioridad = (valor) => {
     if (valor === null || valor === undefined) return null;
     const v = String(valor).trim().toLowerCase();
-    if (v === 'alta'  || v === '1') return 'alta';
+    if (v === 'alta' || v === '1') return 'alta';
     if (v === 'media' || v === '2') return 'media';
-    if (v === 'baja'  || v === '3') return 'baja';
+    if (v === 'baja' || v === '3') return 'baja';
     return null;
 };
 
@@ -26,9 +27,9 @@ const nombresPrioridad = {
 };
 
 const estilosPrioridad = {
-    alta:  { backgroundColor: 'var(--error-bg)',   color: 'var(--error-text)'   },
+    alta: { backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' },
     media: { backgroundColor: 'var(--warning-bg)', color: 'var(--warning-text)' },
-    baja:  { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)' },
+    baja: { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)' },
 };
 
 const estiloEtiqueta = {
@@ -134,6 +135,7 @@ export default function TablaInterconsultas({ filtros }) {
                             <th style={estiloEncabezado}>Hospital</th>
                             <th style={estiloEncabezado}>Estado</th>
                             <th style={estiloEncabezado}>Prioridad</th>
+                            <th style={estiloEncabezado}>Detalle</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -158,6 +160,14 @@ export default function TablaInterconsultas({ filtros }) {
                                                 {item.prioridadClinica ?? '—'}
                                             </span>
                                         )}
+                                    </td>
+                                    <td style={estiloCelda}>
+                                        <Link
+                                            to={`/interconsultas/${item.idFormulario}`}
+                                            state={{ interconsulta: item }}
+                                        >
+                                            Ver
+                                        </Link>
                                     </td>
                                 </tr>
                             );
