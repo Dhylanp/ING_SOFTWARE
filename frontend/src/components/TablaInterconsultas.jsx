@@ -63,6 +63,7 @@ export default function TablaInterconsultas({ filtros }) {
         () => JSON.stringify({
             estados: [...filtros.estados].sort(),
             prioridad: filtros.prioridad,
+            especialidad: filtros.especialidad,
             desde: filtros.desde,
             hasta: filtros.hasta,
         }),
@@ -83,6 +84,8 @@ export default function TablaInterconsultas({ filtros }) {
                     const p = map[filtros.prioridad];
                     if (p) params.prioridad = p;
                 }
+
+                if (filtros.especialidad) params.especialidad = filtros.especialidad;
                 if (filtros.desde) params.desde = filtros.desde;
                 if (filtros.hasta) params.hasta = filtros.hasta;
 
@@ -133,6 +136,7 @@ export default function TablaInterconsultas({ filtros }) {
                             <th style={estiloEncabezado}>Persona</th>
                             <th style={estiloEncabezado}>CESFAM</th>
                             <th style={estiloEncabezado}>Hospital</th>
+                            <th style={estiloEncabezado}>Especialidad</th>
                             <th style={estiloEncabezado}>Estado</th>
                             <th style={estiloEncabezado}>Prioridad</th>
                             <th style={estiloEncabezado}>Detalle</th>
@@ -149,6 +153,7 @@ export default function TablaInterconsultas({ filtros }) {
                                     <td style={estiloCelda}>{item.nombrePersona}</td>
                                     <td style={estiloCelda}>{item.nombreCesfam}</td>
                                     <td style={estiloCelda}>{item.nombreHospital}</td>
+                                    <td style={estiloCelda}>{item.nombreEspecialidad || 'No especificada'}</td>
                                     <td style={estiloCelda}>{item.nombreEstado}</td>
                                     <td style={estiloCelda}>
                                         {prioridad ? (

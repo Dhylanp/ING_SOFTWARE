@@ -188,6 +188,7 @@ export default function DetalleInterconsulta() {
                     <p style={estiloDato}><strong>Paciente:</strong> {interconsulta.nombrePersona}</p>
                     <p style={estiloDato}><strong>CESFAM de origen:</strong> {interconsulta.nombreCesfam}</p>
                     <p style={estiloDato}><strong>Hospital de destino:</strong> {interconsulta.nombreHospital}</p>
+                    <p style={estiloDato}><strong>Especialidad de destino:</strong> {interconsulta.nombreEspecialidad || 'No especificada'}</p>
                     <p style={estiloDato}><strong>Fecha de inicio:</strong> {interconsulta.fechaInicio}</p>
                     <p style={estiloDato}><strong>Estado:</strong> {interconsulta.nombreEstado}</p>
                     <p style={estiloDato}>

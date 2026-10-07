@@ -7,6 +7,7 @@ const formularioVacio = {
     rut: '',
     idCesfam: '',
     idHospital: '',
+    idEspecialidad: '',
     prioridad: '2',
     descripcion: '',
 };
@@ -27,6 +28,8 @@ export default function RegistrarInterconsulta() {
     const [errores, setErrores] = useState({});
     const [personas, setPersonas] = useState([]);
     const [hospitales, setHospitales] = useState([]);
+    const [especialidades, setEspecialidades] = useState([]);
+    const [cargandoEspecialidades, setCargandoEspecialidades] = useState(false);
     const [cargandoHospitales, setCargandoHospitales] = useState(false);
 
     // CESFAM del médico: salen de los accesos con rol 1 que trae la sesión
@@ -42,9 +45,9 @@ export default function RegistrarInterconsulta() {
     const rutListo = /^\d{7,8}-[\dk]$/.test(rutLimpio);
     const paciente = rutListo
         ? personas.find((p) => {
-              const [rutTexto, dv] = rutLimpio.split('-');
-              return String(p.rut) === rutTexto && String(p.dv).toLowerCase() === dv;
-          }) || null
+            const [rutTexto, dv] = rutLimpio.split('-');
+            return String(p.rut) === rutTexto && String(p.dv).toLowerCase() === dv;
+        }) || null
         : null;
 
     // mensaje bajo el RUT: el error de validación o, mientras escribe, "no encontrado"
@@ -94,11 +97,10 @@ export default function RegistrarInterconsulta() {
 
                 let texto;
                 if (err.response) {
-                    texto = `Error del servidor (${err.response.status}): ${
-                        typeof err.response.data?.detail === 'string'
-                            ? err.response.data.detail
-                            : 'No se pudo cargar la lista de hospitales.'
-                    }`;
+                    texto = `Error del servidor (${err.response.status}): ${typeof err.response.data?.detail === 'string'
+                        ? err.response.data.detail
+                        : 'No se pudo cargar la lista de hospitales.'
+                        }`;
                 } else if (err.request) {
                     texto = 'No hubo respuesta del servidor. Verifique la URL del backend y CORS.';
                 } else {
@@ -116,6 +118,28 @@ export default function RegistrarInterconsulta() {
         };
 
         obtenerHospitales();
+    }, []);
+
+    // carga la lista de especialidades al abrir la pantalla
+    useEffect(() => {
+        const obtenerEspecialidades = async () => {
+            setCargandoEspecialidades(true);
+            try {
+                const respuesta = await api.get('/especialidad');
+                setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
+            } catch (err) {
+                console.error('[RegistrarInterconsulta] Error especialidades:', err);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'No se pudo cargar la lista de especialidades.'
+                });
+            } finally {
+                setCargandoEspecialidades(false);
+            }
+        };
+
+        obtenerEspecialidades();
     }, []);
 
     const handleChange = (e) => {
@@ -148,6 +172,10 @@ export default function RegistrarInterconsulta() {
             nuevos.idHospital = 'Seleccione un hospital de destino.';
         }
 
+        if (!formData.idEspecialidad) {
+            nuevos.idEspecialidad = 'Seleccione la especialidad de destino.';
+        }
+
         if (!formData.descripcion.trim()) {
             nuevos.descripcion = 'Escriba el motivo de la derivación.';
         }
@@ -178,6 +206,7 @@ export default function RegistrarInterconsulta() {
                 idPersona: Number(paciente.idPersona),
                 idCesfam: Number(idCesfamFinal),
                 idHospital: Number(formData.idHospital),
+                idEspecialidad: Number(formData.idEspecialidad),
                 prioridad: formData.prioridad,
             });
 
@@ -297,6 +326,32 @@ export default function RegistrarInterconsulta() {
                     {!cargandoHospitales && hospitales.length === 0 && (
                         <small className="texto-error" style={estiloMensaje}>
                             No hay hospitales disponibles.
+                        </small>
+                    )}
+                </div>
+
+                {/* selector de especialidad de destino */}
+                <div style={{ marginBottom: '15px' }}>
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Especialidad de Destino (*):</label>
+                    <select
+                        name="idEspecialidad"
+                        value={formData.idEspecialidad}
+                        onChange={handleChange}
+                        disabled={cargandoEspecialidades}
+                        style={estiloCampo(Boolean(errores.idEspecialidad))}
+                    >
+                        <option value="">
+                            {cargandoEspecialidades ? 'Cargando especialidades...' : 'Seleccione una especialidad'}
+                        </option>
+                        {especialidades.map((esp) => (
+                            <option key={esp.idEspecialidad} value={esp.idEspecialidad}>
+                                {esp.nombreEspecialidad}
+                            </option>
+                        ))}
+                    </select>
+                    {errores.idEspecialidad && (
+                        <small className="texto-error" style={estiloMensaje}>
+                            {errores.idEspecialidad}
                         </small>
                     )}
                 </div>

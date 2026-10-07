@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import api from '../api/axios';
 import TablaInterconsultas from '../components/TablaInterconsultas';
 
 const estadosDisponibles = [
@@ -8,16 +9,31 @@ const estadosDisponibles = [
   { id: 4, nombre: 'Enviada' },
 ];
 
-const filtrosIniciales = { estados: [], prioridad: 0, desde: '', hasta: '' };
+const filtrosIniciales = { estados: [], prioridad: 0, especialidad: 0, desde: '', hasta: '' };
 
 export default function ListadoInterconsultas() {
   const [filtros, setFiltros] = useState(filtrosIniciales);
+  const [especialidades, setEspecialidades] = useState([]);
+
+  // carga la lista de especialidades para el selector de filtro
+  useEffect(() => {
+    const obtenerEspecialidades = async () => {
+      try {
+        const respuesta = await api.get('/especialidad');
+        setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
+      } catch (err) {
+        // si falla, el selector queda solo con "Todas las especialidades"
+        console.error('[ListadoInterconsultas] Error especialidades:', err);
+      }
+    };
+    obtenerEspecialidades();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFiltros({
       ...filtros,
-      [name]: name === 'prioridad' ? Number(value) : value,
+      [name]: name === 'prioridad' || name === 'especialidad' ? Number(value) : value,
     });
   };
 
@@ -51,6 +67,16 @@ export default function ListadoInterconsultas() {
           <option value={2}>Media</option>
           <option value={3}>Baja</option>
         </select>
+
+        <select name="especialidad" value={filtros.especialidad} onChange={handleChange}>
+          <option value={0}>Todas las especialidades</option>
+          {especialidades.map((esp) => (
+            <option key={esp.idEspecialidad} value={esp.idEspecialidad}>
+              {esp.nombreEspecialidad}
+            </option>
+          ))}
+        </select>
+        
         <button onClick={limpiarFiltros}>Limpiar filtros</button>
       </div>
 
