@@ -156,13 +156,13 @@ const EditarPerfil = () => {
     const valor = limpiarTelefono(nuevoTel);
     if (!valor) return;
     if (!RE_TELEFONO.test(valor)) {
-    Swal.fire({
-      icon: 'error',
-      title: 'Teléfono no válido',
-      text: 'El teléfono debe tener exactamente 9 dígitos. No se permite +56 ni otros caracteres.'
-    });
-    return;
-  }
+      Swal.fire({
+        icon: 'error',
+        title: 'Teléfono no válido',
+        text: 'El teléfono debe tener exactamente 9 dígitos. No se permite +56 ni otros caracteres.'
+      });
+      return;
+    }
     if (telefonos.includes(valor)) {
       Swal.fire({ icon: 'info', title: 'Ese teléfono ya está en tu lista' });
       return;
@@ -227,6 +227,16 @@ const EditarPerfil = () => {
       Swal.fire({ icon: 'warning', title: 'Escribe tu calle' });
       return;
     }
+
+    const r = await Swal.fire({
+      icon: 'question',
+      title: '¿Guardar los cambios?',
+      text: 'Se actualizarán tus datos de contacto.',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, guardar',
+      cancelButtonText: 'Cancelar'
+    });
+    if (!r.isConfirmed) return;
 
     setGuardando(true);
     try {

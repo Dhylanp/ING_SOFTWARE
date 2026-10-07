@@ -122,7 +122,7 @@ export default function TablaInterconsultas({ filtros }) {
             {cargando && <p style={{ textAlign: 'center' }}>Actualizando...</p>}
 
             {interconsultas.length === 0 ? (
-                !cargando && <p>no hay interconsultas registradas en el sistema.</p>
+                !cargando && <p>Sin resultados</p>
             ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', backgroundColor: 'var(--surface)' }}>
                     <thead>
