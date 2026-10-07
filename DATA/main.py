@@ -1029,6 +1029,10 @@ def filtraFormularios(
         if hospital != 0:
             condiciones.append("f.idHospital = %s")
             filtro.append(hospital)
+            
+        if especialidad != 0:
+            condiciones.append("f.idEspecialidad = %s")
+            filtro.append(especialidad)
 
         if lista_estados:
             marcadores = ", ".join(["%s"] * len(lista_estados))
