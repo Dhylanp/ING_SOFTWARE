@@ -24,7 +24,6 @@ const formatearFecha = (iso) => {
   return d && m && y ? `${d}/${m}/${y}` : iso;
 };
 
-// Trae las comunas de una región; si la API responde 404 devuelve lista vacía
 const traerComunas = async (idRegion) => {
   try {
     const res = await api.get(`/comuna/${idRegion}`);
@@ -33,6 +32,12 @@ const traerComunas = async (idRegion) => {
     if (error.response?.status === 404) return [];
     throw error;
   }
+};
+
+// Normaliza un teléfono que venga de la API (string antiguo u objeto nuevo)
+const normalizarTelefono = (t) => {
+  if (typeof t === 'string') return { numero: t, tipo: 'P' };
+  return { numero: String(t?.numero ?? ''), tipo: t?.tipo === 'E' ? 'E' : 'P' };
 };
 
 const EditarPerfil = () => {
@@ -52,11 +57,12 @@ const EditarPerfil = () => {
   const [idRegion, setIdRegion] = useState('');
   const [idComuna, setIdComuna] = useState('');
   const [calle, setCalle] = useState('');
-  const [telefonos, setTelefonos] = useState([]);
+  const [telefonos, setTelefonos] = useState([]); // [{ numero, tipo }]
   const [correos, setCorreos] = useState([]);
 
   // Campos de "agregar"
   const [nuevoTel, setNuevoTel] = useState('');
+  const [nuevoTipoTel, setNuevoTipoTel] = useState('P');
   const [nuevoCorreo, setNuevoCorreo] = useState('');
 
   // Foto del estado guardado, para saber si hay cambios
@@ -67,7 +73,7 @@ const EditarPerfil = () => {
       JSON.stringify({
         calle: calle.trim(),
         idComuna: String(idComuna),
-        telefonos,
+        telefonos: telefonos.map((t) => ({ numero: t.numero, tipo: t.tipo })),
         correos
       }),
     [calle, idComuna, telefonos, correos]
@@ -92,6 +98,8 @@ const EditarPerfil = () => {
 
         if (!activo) return;
 
+        const telefonosNormalizados = (p.telefonos || []).map(normalizarTelefono);
+
         setFijos({
           nombrePersona: p.nombrePersona,
           rut: p.rut,
@@ -103,13 +111,13 @@ const EditarPerfil = () => {
         setIdRegion(p.idRegion ? String(p.idRegion) : '');
         setIdComuna(p.idComuna ? String(p.idComuna) : '');
         setCalle(p.calle || '');
-        setTelefonos(p.telefonos || []);
+        setTelefonos(telefonosNormalizados);
         setCorreos(p.correos || []);
         setOriginal(
           JSON.stringify({
             calle: (p.calle || '').trim(),
             idComuna: p.idComuna ? String(p.idComuna) : '',
-            telefonos: p.telefonos || [],
+            telefonos: telefonosNormalizados.map((t) => ({ numero: t.numero, tipo: t.tipo })),
             correos: p.correos || []
           })
         );
@@ -163,12 +171,13 @@ const EditarPerfil = () => {
       });
       return;
     }
-    if (telefonos.includes(valor)) {
+    if (telefonos.some((t) => t.numero === valor)) {
       Swal.fire({ icon: 'info', title: 'Ese teléfono ya está en tu lista' });
       return;
     }
-    setTelefonos((prev) => [...prev, valor]);
+    setTelefonos((prev) => [...prev, { numero: valor, tipo: nuevoTipoTel }]);
     setNuevoTel('');
+    setNuevoTipoTel('P');
   };
 
   const agregarCorreo = () => {
@@ -190,8 +199,8 @@ const EditarPerfil = () => {
     setNuevoCorreo('');
   };
 
-  const quitarTelefono = (valor) =>
-    setTelefonos((prev) => prev.filter((t) => t !== valor));
+  const quitarTelefono = (numero) =>
+    setTelefonos((prev) => prev.filter((t) => t.numero !== numero));
   const quitarCorreo = (valor) =>
     setCorreos((prev) => prev.filter((c) => c !== valor));
 
@@ -243,7 +252,7 @@ const EditarPerfil = () => {
       await api.put(`/persona/${idPersona}/perfil`, {
         calle: calle.trim(),
         idComuna: Number(idComuna),
-        telefonos,
+        telefonos: telefonos.map((t) => ({ numero: t.numero, tipo: t.tipo })),
         correos
       });
       setOriginal(estadoActual);
@@ -358,9 +367,24 @@ const EditarPerfil = () => {
               <p style={estiloVacio}>No tienes teléfonos registrados.</p>
             )}
             {telefonos.map((t) => (
-              <FilaDato key={t} valor={t} onQuitar={() => quitarTelefono(t)} etiqueta="teléfono" />
+              <FilaDato
+                key={t.numero}
+                valor={t.numero}
+                etiqueta={t.tipo === 'E' ? 'teléfono de emergencia' : 'teléfono personal'}
+                badge={t.tipo === 'E' ? 'Emergencia' : 'Personal'}
+                onQuitar={() => quitarTelefono(t.numero)}
+              />
             ))}
             <div style={estiloFilaAgregar}>
+              <select
+                value={nuevoTipoTel}
+                onChange={(e) => setNuevoTipoTel(e.target.value)}
+                aria-label="Tipo de teléfono"
+                style={{ ...estiloInput, margin: 0, width: '130px', flexShrink: 0 }}
+              >
+                <option value="P">Personal</option>
+                <option value="E">Emergencia</option>
+              </select>
               <input
                 type="tel"
                 maxLength={9}
@@ -458,7 +482,9 @@ const CampoFijo = ({ etiqueta, valor }) => (
   </div>
 );
 
-const FilaDato = ({ valor, onQuitar, etiqueta }) => (
+const ANCHO_BADGE = '104px'; // ancho fijo para alinear los números
+
+const FilaDato = ({ valor, onQuitar, etiqueta, badge }) => (
   <div
     style={{
       display: 'flex',
@@ -472,8 +498,39 @@ const FilaDato = ({ valor, onQuitar, etiqueta }) => (
       fontSize: '14px'
     }}
   >
-    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={valor}>
-      {valor}
+    <span style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', flex: 1 }}>
+      {badge && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: ANCHO_BADGE,
+            boxSizing: 'border-box',
+            fontSize: '11px',
+            fontWeight: 700,
+            padding: '2px 8px',
+            borderRadius: '999px',
+            backgroundColor: badge === 'Emergencia' ? 'var(--error-bg)' : 'var(--primary-soft)',
+            color: badge === 'Emergencia' ? 'var(--error-text)' : 'var(--primary)',
+            flexShrink: 0,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {badge}
+        </span>
+      )}
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontVariantNumeric: 'tabular-nums'
+        }}
+        title={valor}
+      >
+        {valor}
+      </span>
     </span>
     <button
       type="button"
