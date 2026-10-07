@@ -101,6 +101,9 @@ export default function FichaPaciente() {
     const [personas, setPersonas] = useState([]);
     const [contacto, setContacto] = useState(null);
     const [cargandoContacto, setCargandoContacto] = useState(false);
+    const [nombre, setNombre] = useState('');
+    // paciente elegido de la lista de coincidencias por nombre
+    const [seleccionado, setSeleccionado] = useState(null);
 
     const [comunas, setComunas] = useState([]);
     const [editando, setEditando] = useState(false);
@@ -116,12 +119,13 @@ export default function FichaPaciente() {
     // busca al paciente por RUT (ignora puntos y espacios)
     const rutLimpio = rut.replace(/[.\s]/g, '').toLowerCase();
     const rutListo = /^\d{7,8}-[\dk]$/.test(rutLimpio);
-    const paciente = rutListo
+    const pacientePorRut = rutListo
         ? personas.find((p) => {
             const [rutTexto, dv] = rutLimpio.split('-');
             return String(p.rut) === rutTexto && String(p.dv).toLowerCase() === dv;
         }) || null
         : null;
+    const paciente = pacientePorRut || seleccionado;
 
     // mensaje bajo el RUT
     let mensajeRut = '';
@@ -130,6 +134,34 @@ export default function FichaPaciente() {
     } else if (rutListo && !paciente && personas.length > 0) {
         mensajeRut = 'No se encontró un paciente con ese RUT.';
     }
+
+    // búsqueda por nombre (sin distinguir mayúsculas ni tildes)
+    const normalizar = (texto) =>
+        texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const textoNombre = normalizar(nombre);
+    const coincidencias = textoNombre.length >= 3
+        ? personas.filter((p) => normalizar(p.nombrePersona).includes(textoNombre))
+        : [];
+
+    let mensajeNombre = '';
+    if (textoNombre && textoNombre.length < 3) {
+        mensajeNombre = 'Escriba al menos 3 letras del nombre.';
+    } else if (textoNombre.length >= 3 && coincidencias.length === 0 && personas.length > 0) {
+        mensajeNombre = 'No se encontró un paciente con ese nombre.';
+    }
+
+    // al escribir en un campo se limpia el otro
+    const handleRut = (e) => {
+        setRut(e.target.value);
+        setNombre('');
+        setSeleccionado(null);
+    };
+
+    const handleNombre = (e) => {
+        setNombre(e.target.value);
+        setRut('');
+        setSeleccionado(null);
+    };
 
     // carga la lista de personas al abrir la pantalla
     useEffect(() => {
@@ -473,7 +505,7 @@ export default function FichaPaciente() {
                     type="text"
                     placeholder="Ej: 12345678-9"
                     value={rut}
-                    onChange={(e) => setRut(e.target.value)}
+                    onChange={handleRut}
                     disabled={guardando}
                     style={estiloCampo(Boolean(mensajeRut))}
                 />
@@ -481,6 +513,36 @@ export default function FichaPaciente() {
                     <small className="texto-error" style={estiloMensaje}>
                         {mensajeRut}
                     </small>
+                )}
+            </div>
+
+            {/* nombre del paciente */}
+            <div style={{ marginBottom: '15px' }}>
+                <label style={estiloEtiqueta}>O busque por nombre:</label>
+                <input
+                    type="text"
+                    placeholder="Ej: Juan Pérez"
+                    value={nombre}
+                    onChange={handleNombre}
+                    disabled={guardando}
+                    style={estiloCampo(Boolean(mensajeNombre))}
+                />
+                {mensajeNombre && (
+                    <small className="texto-error" style={estiloMensaje}>
+                        {mensajeNombre}
+                    </small>
+                )}
+
+                {!seleccionado && coincidencias.length > 0 && (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                        {coincidencias.slice(0, 8).map((p) => (
+                            <li key={p.idPersona} style={{ marginBottom: '6px' }}>
+                                <button type="button" onClick={() => setSeleccionado(p)}>
+                                    {p.nombrePersona} ({p.rut}-{p.dv})
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
                 )}
             </div>
 
