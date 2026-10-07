@@ -141,6 +141,7 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
+    idEspecialidad: int
     # FIX: se acepta 'alta'|'media'|'baja' (o '1'|'2'|'3') y se normaliza antes del INSERT.
     prioridad: str
 
@@ -423,16 +424,23 @@ def creaFormulario(formulario: formularioEntrada):
 
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
+            (formulario.idEspecialidad,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="La especialidad no existe")
         query = """
             INSERT INTO formulario
-                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica)
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica, idEspecialidad)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
             formulario.descripcion, formulario.fechaInicio,
             formulario.idPersona, formulario.idCesfam,
-            formulario.idHospital, 1, prioridad_bd
+            formulario.idHospital, 1, prioridad_bd,
+            formulario.idEspecialidad
         )
         cursor.execute(query, valores)
         conexion.commit()
@@ -548,7 +556,33 @@ def obtieneRegiones():
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+            
+@app.get("/especialidad")
+def obtieneEspecialidades():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad, nombreEspecialidad "
+            "FROM especialidad ORDER BY nombreEspecialidad"
+        )
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron especialidades")
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /especialidad")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
 
 @app.get("/comuna/{region}")
 def obtieneComunas(region: int):
@@ -872,12 +906,15 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
             LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
             LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -936,6 +973,7 @@ def filtraFormularios(
     persona: int = 0,
     cesfam: int = 0,
     hospital: int = 0,
+    especialidad: int = 0,
     estados: str = "",
     prioridad: str = "todas",
     desde: date | None = None,
@@ -968,12 +1006,15 @@ def filtraFormularios(
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
             LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
             LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
