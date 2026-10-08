@@ -278,11 +278,15 @@ def login(datos: Login):
                 p.rut,
                 a.idRol,
                 a.idHospital,
-                a.idCesfam
+                a.idCesfam,
+                ce.nombreCesfam AS nombreCesfam,
+                h.nombreHospital AS nombreHospital
             FROM persona p
             LEFT JOIN acceso a
                 ON p.idPersona = a.idPersona
                 AND a.idRol = %s
+            LEFT JOIN cesfam   ce ON a.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON a.idHospital = h.idHospital
             WHERE p.rut = %s
             AND a.activo = %s
         """
