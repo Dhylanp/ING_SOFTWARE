@@ -195,8 +195,9 @@ class TelefonoActualiza(BaseModel):
 
 
 class contactoActualiza(BaseModel):
-    # Acepta lista de strings (retrocompatible) o lista de {numero, tipo}
-    telefonos: list[str] | list[TelefonoActualiza] | None = None
+    # Solo TelefonoActualiza para que cada ítem sea un objeto, no dict.
+    # El validator "before" acepta también strings para retrocompatibilidad.
+    telefonos: list[TelefonoActualiza] | None = None
     correos: list[str] | None = None
     calle: str | None = None
     idComuna: int | None = Field(default=None, gt=0)
@@ -240,6 +241,7 @@ class contactoActualiza(BaseModel):
             if t in vistos:
                 continue
             vistos.add(t)
+            # Devolvemos dicts; Pydantic los convierte a TelefonoActualiza
             limpios.append({"numero": t, "tipo": tipo})
 
         if not 1 <= len(limpios) <= MAX_TELEFONOS:
@@ -772,12 +774,13 @@ def actualizaDatosContacto(persona: int, datos: contactoActualiza):
                 tuple(valores)
             )
 
-        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E)
+        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E).
+        # Cada ítem es un TelefonoActualiza -> se accede por atributo.
         if datos.telefonos is not None:
             cursor.execute("DELETE FROM persona_contactos WHERE idPersona = %s", (persona,))
             cursor.executemany(
                 "INSERT INTO persona_contactos (contactos, idPersona, tipo) VALUES (%s, %s, %s)",
-                [(t["numero"], persona, t["tipo"]) for t in datos.telefonos]
+                [(t.numero, persona, t.tipo) for t in datos.telefonos]
             )
 
         if datos.correos is not None:
@@ -986,8 +989,7 @@ def filtraFormularios(
                    f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
-            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
-            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
         """
         cursor = conexion.cursor(dictionary=True)
