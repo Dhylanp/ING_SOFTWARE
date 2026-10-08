@@ -165,7 +165,6 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
-    idEspecialidad: int
     prioridad: str
 
 
@@ -185,30 +184,64 @@ MAX_TELEFONOS = 5
 MAX_CORREOS = 5
 
 
+class TelefonoActualiza(BaseModel):
+    """
+    Teléfono con su tipo:
+      'P' -> Personal (por defecto)
+      'E' -> Emergencia
+    """
+    numero: str
+    tipo: str = Field(default="P", pattern="^[PE]$")
+
+
 class contactoActualiza(BaseModel):
-    telefonos: list[str] | None = None
+    # Acepta lista de strings (retrocompatible) o lista de {numero, tipo}
+    telefonos: list[str] | list[TelefonoActualiza] | None = None
     correos: list[str] | None = None
     calle: str | None = None
     idComuna: int | None = Field(default=None, gt=0)
 
-    @field_validator("telefonos")
+    @field_validator("telefonos", mode="before")
     @classmethod
     def valida_telefonos(cls, valor):
         if valor is None:
             return valor
-        limpios = []
+
+        limpios: list[dict] = []
+        vistos: set[str] = set()
+
         for original in valor:
-            t = re.sub(r"[\s\-()]", "", original)
+            # Aceptamos dos formas por cada ítem:
+            #   "912345678"           -> tipo 'P' por defecto
+            #   { "numero": "...", "tipo": "P"|"E" }
+            if isinstance(original, dict):
+                numero = original.get("numero", "")
+                tipo = (original.get("tipo") or "P").upper()
+            else:
+                numero = original
+                tipo = "P"
+
+            t = re.sub(r"[\s\-()]", "", str(numero))
             if t.startswith("+56"):
                 t = t[3:]
             elif t.startswith("56") and len(t) == 11:
                 t = t[2:]
+
             if not TEL_REGEX.match(t):
                 raise ValueError(
-                    f"Teléfono inválido: '{original}'. Debe tener 9 dígitos y empezar con 9"
+                    f"Teléfono inválido: '{numero}'. Debe tener 9 dígitos y empezar con 9"
                 )
-            if t not in limpios:
-                limpios.append(t)
+
+            if tipo not in ("P", "E"):
+                raise ValueError(
+                    f"Tipo de teléfono inválido: '{tipo}'. Debe ser 'P' o 'E'"
+                )
+
+            if t in vistos:
+                continue
+            vistos.add(t)
+            limpios.append({"numero": t, "tipo": tipo})
+
         if not 1 <= len(limpios) <= MAX_TELEFONOS:
             raise ValueError(f"Debe haber entre 1 y {MAX_TELEFONOS} teléfonos")
         return limpios
@@ -427,23 +460,16 @@ def creaFormulario(formulario: formularioEntrada):
 
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
-            (formulario.idEspecialidad,)
-        )
-        if cursor.fetchone() is None:
-            raise HTTPException(status_code=422, detail="La especialidad no existe")
         query = """
             INSERT INTO formulario
-                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica, idEspecialidad)
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
             formulario.descripcion, formulario.fechaInicio,
             formulario.idPersona, formulario.idCesfam,
-            formulario.idHospital, 1, prioridad_bd,
-            formulario.idEspecialidad
+            formulario.idHospital, 1, prioridad_bd
         )
         cursor.execute(query, valores)
         conexion.commit()
@@ -546,33 +572,7 @@ def obtieneRegiones():
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
-            
-@app.get("/especialidad")
-def obtieneEspecialidades():
-    conexion = None
-    cursor = None
-    try:
-        conexion = get_conexion()
-        cursor = conexion.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT idEspecialidad, nombreEspecialidad "
-            "FROM especialidad ORDER BY nombreEspecialidad"
-        )
-        respuesta = cursor.fetchall()
-        if len(respuesta) != 0:
-            return respuesta
-        raise HTTPException(status_code=404, detail="No se encontraron especialidades")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error en GET /especialidad")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if cursor:
-            cursor.close()
-        if conexion and conexion.is_connected():
-            conexion.close()
 
 @app.get("/comuna/{region}")
 def obtieneComunas(region: int):
@@ -772,12 +772,12 @@ def actualizaDatosContacto(persona: int, datos: contactoActualiza):
                 tuple(valores)
             )
 
-        # Teléfonos: se reemplaza la lista completa (tipo por defecto 'P')
+        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E)
         if datos.telefonos is not None:
             cursor.execute("DELETE FROM persona_contactos WHERE idPersona = %s", (persona,))
             cursor.executemany(
                 "INSERT INTO persona_contactos (contactos, idPersona, tipo) VALUES (%s, %s, %s)",
-                [(t, persona, 'P') for t in datos.telefonos]
+                [(t["numero"], persona, t["tipo"]) for t in datos.telefonos]
             )
 
         if datos.correos is not None:
@@ -890,15 +890,12 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica,
-                   f.idEspecialidad,
-                   esp.nombreEspecialidad
+                   f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
             LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
             LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
-            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -955,7 +952,6 @@ def filtraFormularios(
     persona: int = 0,
     cesfam: int = 0,
     hospital: int = 0,
-    especialidad: int = 0,
     estados: str = "",
     prioridad: str = "todas",
     desde: date | None = None,
@@ -987,15 +983,12 @@ def filtraFormularios(
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica,
-                   f.idEspecialidad,
-                   esp.nombreEspecialidad
+                   f.prioridadClinica
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
             LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
             LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
-            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -1010,10 +1003,6 @@ def filtraFormularios(
         if hospital != 0:
             condiciones.append("f.idHospital = %s")
             filtro.append(hospital)
-            
-        if especialidad != 0:
-            condiciones.append("f.idEspecialidad = %s")
-            filtro.append(especialidad)
 
         if lista_estados:
             marcadores = ", ".join(["%s"] * len(lista_estados))

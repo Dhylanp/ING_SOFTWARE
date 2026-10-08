@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
 import api from '../api/axios';
 
-// mismas reglas que la API (DATA/main.py); los largos de calle son provisorios
+// mismas reglas que la API
 const TEL_REGEX = /^9\d{8}$/;
 const CORREO_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const CORREO_MAX = 50;
@@ -11,23 +11,114 @@ const CALLE_MAX = 50;
 const MAX_TELEFONOS = 5;
 const MAX_CORREOS = 5;
 
-// borde rojo cuando el campo tiene un error
+// ---------- tipos de teléfono legibles ----------
+const TIPOS_TELEFONO = {
+    P: 'Personal',
+    E: 'Emergencia',
+};
+
+const nombreTipoTelefono = (tipo) => TIPOS_TELEFONO[tipo] || 'Sin tipo';
+
+// ---------- estilos base ----------
+
 const estiloCampo = (hayError) => ({
     width: '100%',
-    ...(hayError ? { border: '1px solid var(--danger)' } : {}),
+    ...(hayError
+        ? { border: '1px solid var(--danger)', boxShadow: '0 0 0 2px rgba(192,57,43,0.12)' }
+        : {}),
 });
 
-// mensaje de error bajo un campo
-const estiloMensaje = { display: 'block', marginTop: '4px' };
+const estiloMensaje = { display: 'block', marginTop: '4px', fontSize: '13px' };
 
-// estilo de cada dato de la ficha
-const estiloEtiqueta = { display: 'block', fontWeight: 'bold', marginBottom: '5px' };
+const estiloEtiqueta = {
+    display: 'block',
+    fontWeight: '600',
+    marginBottom: '6px',
+    color: 'var(--text-h)',
+    fontSize: '14px',
+    textAlign: 'left',
+};
 
-// los teléfonos y correos vienen como texto separado por ";" (o null si no hay)
+const estiloCard = {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: '10px',
+    padding: '20px',
+    marginBottom: '20px',
+    boxShadow: 'var(--shadow)',
+    textAlign: 'left',
+};
+
+const estiloFilaDato = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    padding: '10px 0',
+    borderBottom: '1px solid var(--border)',
+};
+
+const estiloFilaDatoUltima = { ...estiloFilaDato, borderBottom: 'none' };
+
+const estiloValor = { color: 'var(--text-h)', fontWeight: '500' };
+
+const btnPrimario = { padding: '10px 20px', fontWeight: '600', borderRadius: '6px' };
+const btnSecundario = {
+    padding: '10px 20px',
+    fontWeight: '600',
+    background: 'var(--surface-alt)',
+    color: 'var(--text-h)',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+};
+const btnPeligro = { padding: '8px 14px', fontWeight: '600', borderRadius: '6px' };
+
+const badge = {
+    display: 'inline-block',
+    padding: '2px 10px',
+    borderRadius: '999px',
+    fontSize: '12px',
+    fontWeight: '600',
+    background: 'var(--primary-soft)',
+    color: 'var(--primary)',
+    border: '1px solid var(--primary-soft-border)',
+};
+
+const badgeTipo = (tipo) => {
+    const esEmergencia = tipo === 'E';
+    return {
+        display: 'inline-block',
+        padding: '2px 10px',
+        borderRadius: '999px',
+        fontSize: '12px',
+        fontWeight: '600',
+        whiteSpace: 'nowrap',
+        background: esEmergencia ? 'var(--error-bg)' : 'var(--primary-soft)',
+        color: esEmergencia ? 'var(--error-text)' : 'var(--primary)',
+        border: `1px solid ${esEmergencia ? 'transparent' : 'var(--primary-soft-border)'}`,
+    };
+};
+
+// ---------- helpers ----------
+
 const separarLista = (texto) =>
     texto ? texto.split(';').map((t) => t.trim()).filter(Boolean) : [];
 
-// deja el teléfono como lo deja la API: sin espacios, guiones ni +56
+const parsearTelefonos = (texto) => {
+    if (!texto) return [];
+    return texto
+        .split(';')
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((item) => {
+            const [numero, tipo] = item.split(':');
+            return {
+                numero: (numero || '').trim(),
+                tipo: (tipo || 'P').trim().toUpperCase(),
+            };
+        })
+        .filter((t) => t.numero);
+};
+
 const limpiarTelefono = (texto) => {
     let t = texto.replace(/[\s\-()]/g, '');
     if (t.startsWith('+56')) t = t.slice(3);
@@ -36,8 +127,6 @@ const limpiarTelefono = (texto) => {
 };
 
 const limpiarCorreo = (texto) => texto.trim().toLowerCase();
-
-// quita espacios sobrantes de la calle
 const limpiarCalle = (texto) => texto.split(/\s+/).filter(Boolean).join(' ');
 
 const erroresVacios = {
@@ -45,15 +134,11 @@ const erroresVacios = {
     idComuna: '',
     telefonos: [],
     correos: [],
-    telefonosApi: '', // mensaje de la API para toda la lista de teléfonos
-    correosApi: '',   // mensaje de la API para toda la lista de correos
+    telefonosApi: '',
+    correosApi: '',
 };
 
-// los validadores de la API anteponen "Value error, " a sus mensajes
 const quitarPrefijo = (msg) => String(msg).replace(/^Value error, /, '');
-
-// ---------- validaciones por campo ----------
-// cada una devuelve el mensaje de error, o '' si el valor está bien
 
 const errorCalle = (texto) => {
     const calle = limpiarCalle(texto);
@@ -64,12 +149,11 @@ const errorCalle = (texto) => {
 
 const errorComuna = (valor) => (valor ? '' : 'Seleccione una comuna.');
 
-// devuelven un mensaje por cada fila de la lista.
-// Mientras escribe (exigirLleno = false) las filas vacías no marcan error,
-// porque aún no las escribió; al guardar (true) sí.
+// 👇 recibe lista de { numero, tipo }
 const erroresTelefonos = (lista, exigirLleno) => {
     const vistos = [];
-    return lista.map((texto) => {
+    return lista.map((item) => {
+        const texto = item.numero || '';
         if (!texto.trim()) {
             return exigirLleno ? 'Ingrese el teléfono o quite este campo.' : '';
         }
@@ -102,7 +186,6 @@ export default function FichaPaciente() {
     const [contacto, setContacto] = useState(null);
     const [cargandoContacto, setCargandoContacto] = useState(false);
     const [nombre, setNombre] = useState('');
-    // paciente elegido de la lista de coincidencias por nombre
     const [seleccionado, setSeleccionado] = useState(null);
 
     const [comunas, setComunas] = useState([]);
@@ -110,13 +193,12 @@ export default function FichaPaciente() {
     const [formEdicion, setFormEdicion] = useState({
         calle: '',
         idComuna: '',
-        telefonos: [''],
+        telefonos: [{ numero: '', tipo: 'P' }],
         correos: [''],
     });
     const [errores, setErrores] = useState(erroresVacios);
     const [guardando, setGuardando] = useState(false);
 
-    // busca al paciente por RUT (ignora puntos y espacios)
     const rutLimpio = rut.replace(/[.\s]/g, '').toLowerCase();
     const rutListo = /^\d{7,8}-[\dk]$/.test(rutLimpio);
     const pacientePorRut = rutListo
@@ -127,7 +209,6 @@ export default function FichaPaciente() {
         : null;
     const paciente = pacientePorRut || seleccionado;
 
-    // mensaje bajo el RUT
     let mensajeRut = '';
     if (rut.trim() && !rutListo) {
         mensajeRut = 'El RUT debe tener el formato 12345678-9.';
@@ -135,7 +216,6 @@ export default function FichaPaciente() {
         mensajeRut = 'No se encontró un paciente con ese RUT.';
     }
 
-    // búsqueda por nombre (sin distinguir mayúsculas ni tildes)
     const normalizar = (texto) =>
         texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     const textoNombre = normalizar(nombre);
@@ -150,7 +230,6 @@ export default function FichaPaciente() {
         mensajeNombre = 'No se encontró un paciente con ese nombre.';
     }
 
-    // al escribir en un campo se limpia el otro
     const handleRut = (e) => {
         setRut(e.target.value);
         setNombre('');
@@ -163,7 +242,6 @@ export default function FichaPaciente() {
         setSeleccionado(null);
     };
 
-    // carga la lista de personas al abrir la pantalla
     useEffect(() => {
         const obtenerPersonas = async () => {
             try {
@@ -174,15 +252,13 @@ export default function FichaPaciente() {
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
-                    text: 'No se pudo cargar la lista de pacientes.'
+                    text: 'No se pudo cargar la lista de pacientes.',
                 });
             }
         };
-
         obtenerPersonas();
     }, []);
 
-    // carga todas las comunas (0 = sin filtrar por región) para el selector
     useEffect(() => {
         const obtenerComunas = async () => {
             try {
@@ -195,28 +271,25 @@ export default function FichaPaciente() {
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
-                    text: 'No se pudo cargar la lista de comunas.'
+                    text: 'No se pudo cargar la lista de comunas.',
                 });
             }
         };
-
         obtenerComunas();
     }, []);
 
-    // cuando cambia el paciente, sale del modo edición y carga sus datos de contacto
     const idPaciente = paciente?.idPersona;
     useEffect(() => {
         setContacto(null);
         setEditando(false);
         if (!idPaciente) return;
 
-        let cancelado = false; // evita mostrar datos de un paciente anterior
+        let cancelado = false;
         const obtenerContacto = async () => {
             setCargandoContacto(true);
             try {
                 const respuesta = await api.get(`/contactos/${idPaciente}`);
                 if (!cancelado) {
-                    // la API responde una lista con un solo objeto
                     setContacto(Array.isArray(respuesta.data) ? respuesta.data[0] : null);
                 }
             } catch (err) {
@@ -228,7 +301,7 @@ export default function FichaPaciente() {
                         title: 'Error',
                         text: typeof detalle === 'string'
                             ? detalle
-                            : 'No se pudieron cargar los datos de contacto.'
+                            : 'No se pudieron cargar los datos de contacto.',
                     });
                 }
             } finally {
@@ -242,17 +315,17 @@ export default function FichaPaciente() {
         };
     }, [idPaciente]);
 
-    const telefonos = separarLista(contacto?.Contactos);
+    const telefonos = parsearTelefonos(contacto?.Contactos);
     const correos = separarLista(contacto?.Correos);
 
-    // ---------- edición ----------
-
-    // abre el formulario con los datos actuales del paciente
     const iniciarEdicion = () => {
         setFormEdicion({
             calle: contacto.calle || '',
             idComuna: paciente.idComuna ? String(paciente.idComuna) : '',
-            telefonos: telefonos.length > 0 ? telefonos : [''],
+            telefonos:
+                telefonos.length > 0
+                    ? telefonos.map((t) => ({ numero: t.numero, tipo: t.tipo }))
+                    : [{ numero: '', tipo: 'P' }],
             correos: correos.length > 0 ? correos : [''],
         });
         setErrores(erroresVacios);
@@ -264,7 +337,6 @@ export default function FichaPaciente() {
         setErrores(erroresVacios);
     };
 
-    // cambio de calle o comuna: se valida mientras escribe
     const cambiarCampo = (e) => {
         const { name, value } = e.target;
         setFormEdicion({ ...formEdicion, [name]: value });
@@ -274,38 +346,59 @@ export default function FichaPaciente() {
         });
     };
 
-    // calcula los errores de una lista ('telefonos' o 'correos')
-    const erroresDeLista = (clave, lista, exigirLleno) =>
-        clave === 'telefonos'
-            ? erroresTelefonos(lista, exigirLleno)
-            : erroresCorreos(lista, exigirLleno);
-
-    // cambio en una fila de la lista: se valida toda la lista (por los repetidos)
-    const cambiarItem = (clave, indice, valor) => {
-        const nuevaLista = formEdicion[clave].map((v, i) => (i === indice ? valor : v));
-        setFormEdicion({ ...formEdicion, [clave]: nuevaLista });
+    const cambiarTelefono = (indice, campo, valor) => {
+        const nuevaLista = formEdicion.telefonos.map((t, i) =>
+            i === indice ? { ...t, [campo]: valor } : t
+        );
+        setFormEdicion({ ...formEdicion, telefonos: nuevaLista });
         setErrores({
             ...errores,
-            [clave]: erroresDeLista(clave, nuevaLista, false),
-            [`${clave}Api`]: '',
+            telefonos: erroresTelefonos(nuevaLista, false),
+            telefonosApi: '',
         });
     };
 
-    const agregarItem = (clave) => {
-        setFormEdicion({ ...formEdicion, [clave]: [...formEdicion[clave], ''] });
-    };
-
-    const quitarItem = (clave, indice) => {
-        const nuevaLista = formEdicion[clave].filter((_, i) => i !== indice);
-        setFormEdicion({ ...formEdicion, [clave]: nuevaLista });
+    const cambiarCorreo = (indice, valor) => {
+        const nuevaLista = formEdicion.correos.map((v, i) => (i === indice ? valor : v));
+        setFormEdicion({ ...formEdicion, correos: nuevaLista });
         setErrores({
             ...errores,
-            [clave]: erroresDeLista(clave, nuevaLista, false),
-            [`${clave}Api`]: '',
+            correos: erroresCorreos(nuevaLista, false),
+            correosApi: '',
         });
     };
 
-    // revisión completa al guardar (aquí sí se exigen las filas vacías)
+    const agregarTelefono = () => {
+        setFormEdicion({
+            ...formEdicion,
+            telefonos: [...formEdicion.telefonos, { numero: '', tipo: 'P' }],
+        });
+    };
+
+    const quitarTelefono = (indice) => {
+        const nuevaLista = formEdicion.telefonos.filter((_, i) => i !== indice);
+        setFormEdicion({ ...formEdicion, telefonos: nuevaLista });
+        setErrores({
+            ...errores,
+            telefonos: erroresTelefonos(nuevaLista, false),
+            telefonosApi: '',
+        });
+    };
+
+    const agregarCorreo = () => {
+        setFormEdicion({ ...formEdicion, correos: [...formEdicion.correos, ''] });
+    };
+
+    const quitarCorreo = (indice) => {
+        const nuevaLista = formEdicion.correos.filter((_, i) => i !== indice);
+        setFormEdicion({ ...formEdicion, correos: nuevaLista });
+        setErrores({
+            ...errores,
+            correos: erroresCorreos(nuevaLista, false),
+            correosApi: '',
+        });
+    };
+
     const validar = () => {
         const nuevos = {
             calle: errorCalle(formEdicion.calle),
@@ -323,11 +416,13 @@ export default function FichaPaciente() {
         return { nuevos, hayError };
     };
 
-    // cuerpo listo para el PATCH (ya limpio, igual que lo deja la API)
     const armarCuerpo = () => ({
         calle: limpiarCalle(formEdicion.calle),
         idComuna: Number(formEdicion.idComuna),
-        telefonos: formEdicion.telefonos.map(limpiarTelefono),
+        telefonos: formEdicion.telefonos.map((t) => ({
+            numero: limpiarTelefono(t.numero),
+            tipo: t.tipo,
+        })),
         correos: formEdicion.correos.map(limpiarCorreo),
     });
 
@@ -338,12 +433,11 @@ export default function FichaPaciente() {
         const { nuevos, hayError } = validar();
         setErrores({ ...erroresVacios, ...nuevos });
 
-        // si hay errores no se envía nada
         if (hayError) {
             Swal.fire({
                 icon: 'warning',
                 title: 'Campos incompletos',
-                text: 'Hay campos pendientes o con errores. Revise los marcados en rojo.'
+                text: 'Hay campos pendientes o con errores. Revise los marcados en rojo.',
             });
             return;
         }
@@ -354,11 +448,9 @@ export default function FichaPaciente() {
         try {
             const respuesta = await api.patch(`/contactos/${idPaciente}`, cuerpo);
 
-            // la API responde igual que el GET: una lista con un solo objeto
             const actualizado = Array.isArray(respuesta.data) ? respuesta.data[0] : null;
             if (actualizado) setContacto(actualizado);
 
-            // la respuesta no trae idComuna, así que usamos el que enviamos
             setPersonas((anteriores) =>
                 anteriores.map((p) =>
                     p.idPersona === idPaciente
@@ -373,7 +465,7 @@ export default function FichaPaciente() {
             await Swal.fire({
                 icon: 'success',
                 title: 'Datos actualizados',
-                text: 'Los datos de contacto se guardaron correctamente.'
+                text: 'Los datos de contacto se guardaron correctamente.',
             });
         } catch (err) {
             console.error('[FichaPaciente] Error al guardar:', err);
@@ -381,15 +473,13 @@ export default function FichaPaciente() {
             const status = err.response?.status;
             const detalle = err.response?.data?.detail;
 
-            // sin respuesta = error de red
             if (!err.response) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Sin conexión',
-                    text: 'No se pudo conectar con el servidor. Revise su conexión e intente de nuevo.'
+                    text: 'No se pudo conectar con el servidor. Revise su conexión e intente de nuevo.',
                 });
             } else if (status === 422 && Array.isArray(detalle)) {
-                // cada error trae loc: ["body", "campo"]; ubicamos el mensaje por campo
                 const nuevosApi = { ...erroresVacios };
                 const sinUbicar = [];
 
@@ -412,7 +502,7 @@ export default function FichaPaciente() {
                     title: 'Datos rechazados',
                     text: sinUbicar.length > 0
                         ? sinUbicar.join(' ')
-                        : 'El servidor rechazó algunos datos. Revise los campos marcados en rojo.'
+                        : 'El servidor rechazó algunos datos. Revise los campos marcados en rojo.',
                 });
             } else if (status === 404) {
                 Swal.fire({
@@ -420,7 +510,7 @@ export default function FichaPaciente() {
                     title: 'Paciente no encontrado',
                     text: typeof detalle === 'string'
                         ? detalle
-                        : 'No se encontró al paciente. Búsquelo nuevamente.'
+                        : 'No se encontró al paciente. Búsquelo nuevamente.',
                 });
             } else if (status === 400) {
                 Swal.fire({
@@ -428,7 +518,7 @@ export default function FichaPaciente() {
                     title: 'Nada que guardar',
                     text: typeof detalle === 'string'
                         ? detalle
-                        : 'Debe enviar al menos un campo para actualizar.'
+                        : 'Debe enviar al menos un campo para actualizar.',
                 });
             } else {
                 Swal.fire({
@@ -436,7 +526,7 @@ export default function FichaPaciente() {
                     title: 'Error',
                     text: typeof detalle === 'string'
                         ? detalle
-                        : 'No se pudieron guardar los datos. Intente nuevamente.'
+                        : 'No se pudieron guardar los datos. Intente nuevamente.',
                 });
             }
         } finally {
@@ -444,101 +534,200 @@ export default function FichaPaciente() {
         }
     };
 
-    // dibuja una lista editable (teléfonos o correos)
-    const renderLista = (clave, etiqueta, maximo, placeholder) => (
-        <div style={{ marginBottom: '15px' }}>
-            <label style={estiloEtiqueta}>{etiqueta} (*):</label>
+    // ---------- render de listas editables ----------
 
-            {formEdicion[clave].map((valor, i) => (
+    const renderTelefonos = () => (
+        <div style={{ marginBottom: '18px' }}>
+            <label style={estiloEtiqueta}>Teléfonos (*):</label>
+
+            {formEdicion.telefonos.map((item, i) => (
                 <div key={i} style={{ marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                         <input
                             type="text"
-                            placeholder={placeholder}
-                            value={valor}
-                            onChange={(e) => cambiarItem(clave, i, e.target.value)}
-                            style={estiloCampo(Boolean(errores[clave][i]))}
+                            placeholder="Ej: 912345678"
+                            value={item.numero}
+                            onChange={(e) => cambiarTelefono(i, 'numero', e.target.value)}
+                            style={estiloCampo(Boolean(errores.telefonos[i]))}
                         />
+                        <select
+                            value={item.tipo}
+                            onChange={(e) => cambiarTelefono(i, 'tipo', e.target.value)}
+                            style={{
+                                minWidth: '150px',
+                                ...(item.tipo === 'E'
+                                    ? { borderColor: 'var(--error-text)' }
+                                    : {}),
+                            }}
+                        >
+                            <option value="P">Personal</option>
+                            <option value="E">Emergencia</option>
+                        </select>
                         <button
                             type="button"
                             className="btn-peligro"
-                            disabled={formEdicion[clave].length === 1}
-                            onClick={() => quitarItem(clave, i)}
+                            style={btnPeligro}
+                            disabled={formEdicion.telefonos.length === 1}
+                            onClick={() => quitarTelefono(i)}
                         >
                             Quitar
                         </button>
                     </div>
-                    {errores[clave][i] && (
+                    {errores.telefonos[i] && (
                         <small className="texto-error" style={estiloMensaje}>
-                            {errores[clave][i]}
+                            {errores.telefonos[i]}
                         </small>
                     )}
                 </div>
             ))}
 
-            {formEdicion[clave].length < maximo && (
-                <button type="button" onClick={() => agregarItem(clave)}>
-                    Agregar otro
+            {formEdicion.telefonos.length < MAX_TELEFONOS && (
+                <button type="button" style={btnSecundario} onClick={agregarTelefono}>
+                    + Agregar otro teléfono
                 </button>
             )}
 
-            {errores[`${clave}Api`] && (
+            {errores.telefonosApi && (
                 <small className="texto-error" style={estiloMensaje}>
-                    {errores[`${clave}Api`]}
+                    {errores.telefonosApi}
+                </small>
+            )}
+        </div>
+    );
+
+    const renderCorreos = () => (
+        <div style={{ marginBottom: '18px' }}>
+            <label style={estiloEtiqueta}>Correos (*):</label>
+
+            {formEdicion.correos.map((valor, i) => (
+                <div key={i} style={{ marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                            type="text"
+                            placeholder="Ej: nombre@dominio.cl"
+                            value={valor}
+                            onChange={(e) => cambiarCorreo(i, e.target.value)}
+                            style={estiloCampo(Boolean(errores.correos[i]))}
+                        />
+                        <button
+                            type="button"
+                            className="btn-peligro"
+                            style={btnPeligro}
+                            disabled={formEdicion.correos.length === 1}
+                            onClick={() => quitarCorreo(i)}
+                        >
+                            Quitar
+                        </button>
+                    </div>
+                    {errores.correos[i] && (
+                        <small className="texto-error" style={estiloMensaje}>
+                            {errores.correos[i]}
+                        </small>
+                    )}
+                </div>
+            ))}
+
+            {formEdicion.correos.length < MAX_CORREOS && (
+                <button type="button" style={btnSecundario} onClick={agregarCorreo}>
+                    + Agregar otro correo
+                </button>
+            )}
+
+            {errores.correosApi && (
+                <small className="texto-error" style={estiloMensaje}>
+                    {errores.correosApi}
                 </small>
             )}
         </div>
     );
 
     return (
-        <div style={{ width: '100%', maxWidth: '900px', margin: '40px auto', padding: '20px', boxSizing: 'border-box' }}>
+        <div
+            style={{
+                width: '100%',
+                maxWidth: '900px',
+                margin: '40px auto',
+                padding: '20px',
+                boxSizing: 'border-box',
+            }}
+        >
+            <header style={{ textAlign: 'left', marginBottom: '20px' }}>
+                <h2 style={{ margin: 0 }}>Ficha del paciente</h2>
+                <p style={{ color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Busque al paciente por su RUT o nombre para ver y editar sus datos de contacto.
+                </p>
+            </header>
 
-            <h2>Ficha del paciente</h2>
-            <p style={{ color: 'var(--text-muted)' }}>
-                Busque al paciente por su RUT para ver sus datos de contacto.
-            </p>
+            {/* Card de búsqueda */}
+            <div style={estiloCard}>
+                <h3 style={{ margin: '0 0 12px', color: 'var(--text-h)', fontSize: '16px' }}>
+                    Buscar paciente
+                </h3>
 
-            {/* rut del paciente */}
-            <div style={{ marginBottom: '15px' }}>
-                <label style={estiloEtiqueta}>RUT del Paciente:</label>
-                <input
-                    type="text"
-                    placeholder="Ej: 12345678-9"
-                    value={rut}
-                    onChange={handleRut}
-                    disabled={guardando}
-                    style={estiloCampo(Boolean(mensajeRut))}
-                />
-                {mensajeRut && (
-                    <small className="texto-error" style={estiloMensaje}>
-                        {mensajeRut}
-                    </small>
-                )}
-            </div>
+                <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: '1fr 1fr' }}>
+                    <div>
+                        <label style={estiloEtiqueta}>RUT del Paciente</label>
+                        <input
+                            type="text"
+                            placeholder="Ej: 12345678-9"
+                            value={rut}
+                            onChange={handleRut}
+                            disabled={guardando}
+                            style={estiloCampo(Boolean(mensajeRut))}
+                        />
+                        {mensajeRut && (
+                            <small className="texto-error" style={estiloMensaje}>
+                                {mensajeRut}
+                            </small>
+                        )}
+                    </div>
 
-            {/* nombre del paciente */}
-            <div style={{ marginBottom: '15px' }}>
-                <label style={estiloEtiqueta}>O busque por nombre:</label>
-                <input
-                    type="text"
-                    placeholder="Ej: Juan Pérez"
-                    value={nombre}
-                    onChange={handleNombre}
-                    disabled={guardando}
-                    style={estiloCampo(Boolean(mensajeNombre))}
-                />
-                {mensajeNombre && (
-                    <small className="texto-error" style={estiloMensaje}>
-                        {mensajeNombre}
-                    </small>
-                )}
+                    <div>
+                        <label style={estiloEtiqueta}>O busque por nombre</label>
+                        <input
+                            type="text"
+                            placeholder="Ej: Juan Pérez"
+                            value={nombre}
+                            onChange={handleNombre}
+                            disabled={guardando}
+                            style={estiloCampo(Boolean(mensajeNombre))}
+                        />
+                        {mensajeNombre && (
+                            <small className="texto-error" style={estiloMensaje}>
+                                {mensajeNombre}
+                            </small>
+                        )}
+                    </div>
+                </div>
 
                 {!seleccionado && coincidencias.length > 0 && (
-                    <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                    <ul
+                        style={{
+                            listStyle: 'none',
+                            padding: 0,
+                            margin: '16px 0 0',
+                            display: 'grid',
+                            gap: '6px',
+                        }}
+                    >
                         {coincidencias.slice(0, 8).map((p) => (
-                            <li key={p.idPersona} style={{ marginBottom: '6px' }}>
-                                <button type="button" onClick={() => setSeleccionado(p)}>
-                                    {p.nombrePersona} ({p.rut}-{p.dv})
+                            <li key={p.idPersona}>
+                                <button
+                                    type="button"
+                                    onClick={() => setSeleccionado(p)}
+                                    style={{
+                                        ...btnSecundario,
+                                        width: '100%',
+                                        textAlign: 'left',
+                                        padding: '10px 14px',
+                                    }}
+                                >
+                                    <strong style={{ color: 'var(--text-h)' }}>
+                                        {p.nombrePersona}
+                                    </strong>{' '}
+                                    <span style={{ color: 'var(--text-muted)' }}>
+                                        ({p.rut}-{p.dv})
+                                    </span>
                                 </button>
                             </li>
                         ))}
@@ -546,17 +735,28 @@ export default function FichaPaciente() {
                 )}
             </div>
 
-            {/* datos del paciente encontrado */}
+            {/* Card del paciente */}
             {paciente && (
-                <div>
-                    <div style={{ marginBottom: '15px' }}>
-                        <span style={estiloEtiqueta}>Nombre:</span>
-                        {paciente.nombrePersona}
-                    </div>
-
-                    <div style={{ marginBottom: '15px' }}>
-                        <span style={estiloEtiqueta}>RUT:</span>
-                        {paciente.rut}-{paciente.dv}
+                <div style={estiloCard}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                            marginBottom: '16px',
+                        }}
+                    >
+                        <div>
+                            <h3 style={{ margin: 0, color: 'var(--text-h)', fontSize: '18px' }}>
+                                {paciente.nombrePersona}
+                            </h3>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+                                RUT: {paciente.rut}-{paciente.dv}
+                            </span>
+                        </div>
+                        <span style={badge}>Paciente</span>
                     </div>
 
                     {cargandoContacto && (
@@ -566,59 +766,104 @@ export default function FichaPaciente() {
                     {/* modo lectura */}
                     {contacto && !editando && (
                         <>
-                            <div style={{ marginBottom: '15px' }}>
-                                <span style={estiloEtiqueta}>Dirección:</span>
-                                {contacto.calle || 'No registrada'}
+                            <div style={estiloFilaDato}>
+                                <span style={{ ...estiloEtiqueta, marginBottom: 0 }}>Dirección</span>
+                                <span style={estiloValor}>
+                                    {contacto.calle || 'No registrada'}
+                                </span>
                             </div>
 
-                            <div style={{ marginBottom: '15px' }}>
-                                <span style={estiloEtiqueta}>Comuna:</span>
-                                {contacto.Comuna
-                                    ? `${contacto.Comuna}${contacto.Region ? ` (${contacto.Region})` : ''}`
-                                    : 'No registrada'}
+                            <div style={estiloFilaDato}>
+                                <span style={{ ...estiloEtiqueta, marginBottom: 0 }}>Comuna</span>
+                                <span style={estiloValor}>
+                                    {contacto.Comuna
+                                        ? `${contacto.Comuna}${contacto.Region ? ` (${contacto.Region})` : ''}`
+                                        : 'No registrada'}
+                                </span>
                             </div>
 
-                            <div style={{ marginBottom: '15px' }}>
-                                <span style={estiloEtiqueta}>Teléfonos:</span>
+                            <div style={estiloFilaDato}>
+                                <span style={{ ...estiloEtiqueta, marginBottom: 0 }}>Teléfonos</span>
                                 {telefonos.length > 0 ? (
-                                    <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                        {telefonos.map((t) => (
-                                            <li key={t}>{t}</li>
+                                    <ul
+                                        style={{
+                                            listStyle: 'none',
+                                            margin: '6px 0 0',
+                                            padding: 0,
+                                            display: 'grid',
+                                            gap: '8px',
+                                        }}
+                                    >
+                                        {telefonos.map((t, i) => (
+                                            <li
+                                                key={`${t.numero}-${i}`}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: '10px',
+                                                    padding: '8px 12px',
+                                                    background: 'var(--surface-alt)',
+                                                    border: '1px solid var(--border)',
+                                                    borderRadius: '8px',
+                                                }}
+                                            >
+                                                <span
+                                                    style={{
+                                                        color: 'var(--text-h)',
+                                                        fontWeight: '600',
+                                                        letterSpacing: '0.3px',
+                                                    }}
+                                                >
+                                                    {t.numero}
+                                                </span>
+                                                <span style={badgeTipo(t.tipo)}>
+                                                    {nombreTipoTelefono(t.tipo)}
+                                                </span>
+                                            </li>
                                         ))}
                                     </ul>
                                 ) : (
-                                    'No registrados'
+                                    <span style={{ color: 'var(--text-muted)' }}>No registrados</span>
                                 )}
                             </div>
 
-                            <div style={{ marginBottom: '15px' }}>
-                                <span style={estiloEtiqueta}>Correos:</span>
+                            <div style={estiloFilaDatoUltima}>
+                                <span style={{ ...estiloEtiqueta, marginBottom: 0 }}>Correos</span>
                                 {correos.length > 0 ? (
-                                    <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                    <ul
+                                        style={{
+                                            margin: '4px 0 0',
+                                            paddingLeft: '20px',
+                                            color: 'var(--text-h)',
+                                        }}
+                                    >
                                         {correos.map((c) => (
                                             <li key={c}>{c}</li>
                                         ))}
                                     </ul>
                                 ) : (
-                                    'No registrados'
+                                    <span style={{ color: 'var(--text-muted)' }}>No registrados</span>
                                 )}
                             </div>
 
-                            <button
-                                type="button"
-                                style={{ padding: '10px 20px', fontWeight: 'bold' }}
-                                onClick={iniciarEdicion}
-                            >
-                                Editar
-                            </button>
+                            <div style={{ marginTop: '20px' }}>
+                                <button
+                                    type="button"
+                                    style={btnPrimario}
+                                    onClick={iniciarEdicion}
+                                >
+                                    Editar datos de contacto
+                                </button>
+                            </div>
                         </>
                     )}
 
                     {/* modo edición */}
                     {contacto && editando && (
                         <form onSubmit={handleGuardar} noValidate>
-                            <div style={{ marginBottom: '15px' }}>
-                                <label style={estiloEtiqueta}>Dirección (*):</label>
+                            <div style={{ marginBottom: '18px' }}>
+                                <label style={estiloEtiqueta}>Dirección (*)</label>
                                 <input
                                     type="text"
                                     name="calle"
@@ -633,8 +878,8 @@ export default function FichaPaciente() {
                                 )}
                             </div>
 
-                            <div style={{ marginBottom: '15px' }}>
-                                <label style={estiloEtiqueta}>Comuna (*):</label>
+                            <div style={{ marginBottom: '18px' }}>
+                                <label style={estiloEtiqueta}>Comuna (*)</label>
                                 <select
                                     name="idComuna"
                                     value={formEdicion.idComuna}
@@ -643,7 +888,9 @@ export default function FichaPaciente() {
                                     style={estiloCampo(Boolean(errores.idComuna))}
                                 >
                                     <option value="">
-                                        {comunas.length === 0 ? 'Cargando comunas...' : 'Seleccione una comuna'}
+                                        {comunas.length === 0
+                                            ? 'Cargando comunas...'
+                                            : 'Seleccione una comuna'}
                                     </option>
                                     {comunas.map((c) => (
                                         <option key={c.idComuna} value={c.idComuna}>
@@ -658,18 +905,23 @@ export default function FichaPaciente() {
                                 )}
                             </div>
 
-                            {renderLista('telefonos', 'Teléfonos', MAX_TELEFONOS, 'Ej: 912345678')}
-                            {renderLista('correos', 'Correos', MAX_CORREOS, 'Ej: nombre@dominio.cl')}
+                            {renderTelefonos()}
+                            {renderCorreos()}
 
-                            <div style={{ display: 'flex', gap: '10px' }}>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
                                 <button
                                     type="submit"
                                     disabled={guardando}
-                                    style={{ padding: '10px 20px', fontWeight: 'bold' }}
+                                    style={btnPrimario}
                                 >
                                     {guardando ? 'Guardando...' : 'Guardar cambios'}
                                 </button>
-                                <button type="button" onClick={cancelarEdicion} disabled={guardando}>
+                                <button
+                                    type="button"
+                                    onClick={cancelarEdicion}
+                                    disabled={guardando}
+                                    style={btnSecundario}
+                                >
                                     Cancelar
                                 </button>
                             </div>
