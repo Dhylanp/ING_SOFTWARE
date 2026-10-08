@@ -15,7 +15,7 @@ export default function ListadoInterconsultas() {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [especialidades, setEspecialidades] = useState([]);
 
-  // carga la lista de especialidades para el selector de filtro
+  // carga la li  sta de especialidades para el selector de filtro
   useEffect(() => {
     const obtenerEspecialidades = async () => {
       try {
