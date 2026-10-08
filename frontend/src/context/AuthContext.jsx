@@ -59,6 +59,11 @@ export const AuthProvider = ({ children }) => {
       if (Array.isArray(datosUsuario)) {
         const primero = datosUsuario[0] || {};
 
+        // HU11: guardar el token JWT emitido por el backend
+        if (primero.token) {
+          localStorage.setItem('token', primero.token);
+        }
+
         usuarioCompleto = {
           idPersona: primero.idPersona,
           rut: primero.rut,
@@ -105,6 +110,10 @@ export const AuthProvider = ({ children }) => {
         };
       } else {
         // Por si el backend en el futuro devuelve un objeto
+        if (datosUsuario.token) {
+          localStorage.setItem('token', datosUsuario.token);
+        }
+
         usuarioCompleto = {
           ...datosUsuario,
           idRol: Number(datosUsuario.idRol || rol),

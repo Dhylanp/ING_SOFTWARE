@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
 import mysql.connector
 from pydantic import BaseModel, Field, field_validator
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from urllib.parse import quote
@@ -9,6 +9,7 @@ import bcrypt
 import os
 import re
 import logging
+import jwt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api-lista-espera")
@@ -95,6 +96,37 @@ def get_conexion():
         password=_get_env("MYSQLPASSWORD"),
         connection_timeout=10,
     )
+
+
+# ======================================================================
+# Autenticación JWT (HU11)
+# ======================================================================
+JWT_ALG = "HS256"
+
+
+def crea_token(id_persona: int, id_rol: int) -> str:
+    payload = {
+        "sub": str(id_persona),
+        "rol": int(id_rol),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
+    }
+    return jwt.encode(payload, _get_env("JWT_SECRET"), algorithm=JWT_ALG)
+
+
+def requiere_rol(*roles_permitidos: int):
+    def verificador(authorization: str | None = Header(default=None)):
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Sesión requerida")
+        try:
+            datos = jwt.decode(
+                authorization[7:], _get_env("JWT_SECRET"), algorithms=[JWT_ALG]
+            )
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+        if datos.get("rol") not in roles_permitidos:
+            raise HTTPException(status_code=403, detail="No tiene permisos para esta acción")
+        return datos
+    return verificador
 
 
 # ======================================================================
@@ -258,6 +290,9 @@ def login(datos: Login):
         respuesta = cursor.fetchall()
 
         if len(respuesta) != 0:
+            token = crea_token(respuesta[0]["idPersona"], datos.rol)
+            for fila in respuesta:
+                fila["token"] = token
             return respuesta
 
         raise HTTPException(status_code=403, detail="El usuario no posee acceso con ese rol")
@@ -425,7 +460,7 @@ def creaFormulario(formulario: formularioEntrada):
 
 
 @app.post("/acceso", status_code=201)
-def creaAcceso(acceso: accesoEntrada):
+def creaAcceso(acceso: accesoEntrada, _=Depends(requiere_rol(4))):
     conexion = None
     cursor = None
     try:
@@ -1022,7 +1057,7 @@ def filtraFormularios(
 
 
 @app.get("/Acceso/{rol}/{persona}/{cesfam}/{hospital}")
-def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
+def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int, _=Depends(requiere_rol(4))):
     conexion = None
     cursor = None
     try:
@@ -1091,7 +1126,7 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int):
 
 
 @app.delete("/acceso/{persona}/{rol}/{cesfam}/{hospital}")
-def eliminaAcceso(persona: int, rol: int, cesfam: int, hospital: int):
+def eliminaAcceso(persona: int, rol: int, cesfam: int, hospital: int, _=Depends(requiere_rol(4))):
     conexion = None
     cursor = None
     try:
