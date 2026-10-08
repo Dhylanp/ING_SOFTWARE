@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react';
 import api from '../api/axios';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // ajusta la ruta si es distinta
 
 const nombresEstado = {
     1: 'Registrada',
@@ -9,8 +10,6 @@ const nombresEstado = {
     4: 'Enviada',
 };
 
-// FIX: la API ahora devuelve 'alta'|'media'|'baja', pero por si acaso
-// aceptamos también '1'|'2'|'3' (o mayúsculas).
 const normalizarPrioridad = (valor) => {
     if (valor === null || valor === undefined) return null;
     const v = String(valor).trim().toLowerCase();
@@ -57,8 +56,9 @@ export default function TablaInterconsultas({ filtros }) {
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(null);
 
-    // FIX: clave serializada para evitar refetch cuando el padre
-    // re-renderiza sin cambiar realmente los filtros.
+    // 👇 Datos de sesión: si es paciente (rol 3), filtramos por su idPersona
+    const { idPersona, idRol } = useAuth();
+
     const filtrosKey = useMemo(
         () => JSON.stringify({
             estados: [...filtros.estados].sort(),
@@ -66,8 +66,10 @@ export default function TablaInterconsultas({ filtros }) {
             especialidad: filtros.especialidad,
             desde: filtros.desde,
             hasta: filtros.hasta,
+            idPersona,
+            idRol,
         }),
-        [filtros]
+        [filtros, idPersona, idRol]
     );
 
     useEffect(() => {
@@ -89,10 +91,14 @@ export default function TablaInterconsultas({ filtros }) {
                 if (filtros.desde) params.desde = filtros.desde;
                 if (filtros.hasta) params.hasta = filtros.hasta;
 
+                // 👇 Si es paciente (rol 3), restringir a sus propias interconsultas
+                if (Number(idRol) === 3 && idPersona) {
+                    params.persona = idPersona;
+                }
+
                 const respuesta = await api.get('/formulario/filtrar', { params });
                 setInterconsultas(respuesta.data);
             } catch (err) {
-                // FIX: log detallado para diagnosticar 500/422/red.
                 console.error('Error /formulario/filtrar:', {
                     status: err.response?.status,
                     data: err.response?.data,

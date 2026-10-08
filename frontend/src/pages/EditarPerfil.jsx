@@ -295,10 +295,10 @@ const EditarPerfil = () => {
       </button>
 
       <h1 style={{ margin: '14px 0 4px', fontSize: '24px', color: 'var(--text-h)' }}>
-        Editar información personal
+        Información personal
       </h1>
       <p style={{ margin: '0 0 22px', color: 'var(--text-muted)', fontSize: '14px' }}>
-        Puedes cambiar dónde vives y cómo contactarte. Los demás datos no se pueden modificar.
+        Puedes cambiar dónde vives y cómo contactarte.
       </p>
 
       {cargando ? (
@@ -308,14 +308,14 @@ const EditarPerfil = () => {
       ) : (
         <div style={{ display: 'grid', gap: '16px' }}>
           {/* Datos fijos */}
-          <Bloque titulo="Datos que no se pueden cambiar">
+          <Bloque titulo="Información personal">
             <CampoFijo etiqueta="Nombre" valor={fijos.nombrePersona} />
             <CampoFijo etiqueta="RUT" valor={formatearRut(fijos.rut, fijos.dv)} />
             <CampoFijo etiqueta="Fecha de nacimiento" valor={formatearFecha(fijos.fechaNac)} />
           </Bloque>
 
           {/* Residencia */}
-          <Bloque titulo="Dónde vives">
+          <Bloque titulo="Residencia">
             <label style={estiloEtiqueta} htmlFor="ep-region">Región</label>
             <select
               id="ep-region"

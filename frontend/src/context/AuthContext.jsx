@@ -28,6 +28,9 @@ export const AuthProvider = ({ children }) => {
 
   const isLoggedIn = usuario !== null;
 
+  const idPersona = usuario?.idPersona ?? null;
+  const idRol = usuario?.idRol ?? null;
+
   const iniciarSesion = async ({ rut, clave, rol }) => {
     try {
       const response = await api.post('/login', {
@@ -42,24 +45,11 @@ export const AuthProvider = ({ children }) => {
         throw new Error('El servidor no devolvió información del usuario');
       }
 
-      // ============================================================
-      // Transformación de la respuesta del backend.
-      //
-      // El backend /login devuelve un ARRAY de accesos (una fila por
-      // cada acceso activo con ese rol). Lo convertimos a un objeto
-      // con la forma que espera el frontend (UserWidget, etc.):
-      //   {
-      //     idPersona, rut, nombrePersona, idRol,
-      //     accesos: [ { idRol, idCesfam, idHospital,
-      //                  tipoCentro, nombreCentro, idCentro } ]
-      //   }
-      // ============================================================
       let usuarioCompleto;
 
       if (Array.isArray(datosUsuario)) {
         const primero = datosUsuario[0] || {};
 
-        // HU11: guardar el token JWT emitido por el backend
         if (primero.token) {
           localStorage.setItem('token', primero.token);
         }
@@ -74,7 +64,6 @@ export const AuthProvider = ({ children }) => {
           accesos: datosUsuario.map((a) => {
             const idRol = Number(a.idRol);
 
-            // Rol 3 (Paciente) no tiene centro asociado
             const tipoCentro =
               idRol === 3
                 ? 'x'
@@ -109,7 +98,6 @@ export const AuthProvider = ({ children }) => {
           })
         };
       } else {
-        // Por si el backend en el futuro devuelve un objeto
         if (datosUsuario.token) {
           localStorage.setItem('token', datosUsuario.token);
         }
@@ -175,8 +163,6 @@ export const AuthProvider = ({ children }) => {
     return Number(usuario.idRol) === Number(idRol);
   };
 
-  // Helper: obtiene el acceso para un rol específico
-  // (útil para el UserWidget: getAcceso(1), getAcceso(2), etc.)
   const getAcceso = (idRol) => {
     if (!usuario || !Array.isArray(usuario.accesos)) {
       return undefined;
@@ -214,6 +200,8 @@ export const AuthProvider = ({ children }) => {
       value={{
         usuario,
         isLoggedIn,
+        idPersona,
+        idRol,
         iniciarSesion,
         login,
         logout,
