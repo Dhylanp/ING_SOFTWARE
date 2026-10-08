@@ -165,6 +165,7 @@ class formularioEntrada(BaseModel):
     idPersona: int
     idCesfam: int
     idHospital: int
+    idEspecialidad: int
     prioridad: str
 
 
@@ -184,19 +185,21 @@ MAX_TELEFONOS = 5
 MAX_CORREOS = 5
 
 
+# ======================================================================
+# Tipo de teléfono en la edición de contacto
+# ----------------------------------------------------------------------
+# TelefonoActualiza:
+#   numero -> 9XXXXXXXX
+#   tipo   -> 'P' (Personal) | 'E' (Emergencia)
+# El validator "before" en contactoActualiza acepta también strings
+# para no romper clientes que aún mandan ["912345678"].
+# ======================================================================
 class TelefonoActualiza(BaseModel):
-    """
-    Teléfono con su tipo:
-      'P' -> Personal (por defecto)
-      'E' -> Emergencia
-    """
     numero: str
     tipo: str = Field(default="P", pattern="^[PE]$")
 
 
 class contactoActualiza(BaseModel):
-    # Solo TelefonoActualiza para que cada ítem sea un objeto, no dict.
-    # El validator "before" acepta también strings para retrocompatibilidad.
     telefonos: list[TelefonoActualiza] | None = None
     correos: list[str] | None = None
     calle: str | None = None
@@ -213,7 +216,7 @@ class contactoActualiza(BaseModel):
 
         for original in valor:
             # Aceptamos dos formas por cada ítem:
-            #   "912345678"           -> tipo 'P' por defecto
+            #   "912345678"                        -> tipo 'P' por defecto
             #   { "numero": "...", "tipo": "P"|"E" }
             if isinstance(original, dict):
                 numero = original.get("numero", "")
@@ -462,16 +465,23 @@ def creaFormulario(formulario: formularioEntrada):
 
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
+            (formulario.idEspecialidad,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="La especialidad no existe")
         query = """
             INSERT INTO formulario
-                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica)
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica, idEspecialidad)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
             formulario.descripcion, formulario.fechaInicio,
             formulario.idPersona, formulario.idCesfam,
-            formulario.idHospital, 1, prioridad_bd
+            formulario.idHospital, 1, prioridad_bd,
+            formulario.idEspecialidad
         )
         cursor.execute(query, valores)
         conexion.commit()
@@ -568,6 +578,34 @@ def obtieneRegiones():
         raise
     except Exception as e:
         logger.exception("Error en GET /region")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/especialidad")
+def obtieneEspecialidades():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad, nombreEspecialidad "
+            "FROM especialidad ORDER BY nombreEspecialidad"
+        )
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron especialidades")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /especialidad")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor:
@@ -774,8 +812,7 @@ def actualizaDatosContacto(persona: int, datos: contactoActualiza):
                 tuple(valores)
             )
 
-        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E).
-        # Cada ítem es un TelefonoActualiza -> se accede por atributo.
+        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E)
         if datos.telefonos is not None:
             cursor.execute("DELETE FROM persona_contactos WHERE idPersona = %s", (persona,))
             cursor.executemany(
@@ -893,12 +930,15 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
             LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
             LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -955,6 +995,7 @@ def filtraFormularios(
     persona: int = 0,
     cesfam: int = 0,
     hospital: int = 0,
+    especialidad: int = 0,
     estados: str = "",
     prioridad: str = "todas",
     desde: date | None = None,
@@ -986,11 +1027,15 @@ def filtraFormularios(
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
                    e.nombreEstado,
-                   f.prioridadClinica
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
             FROM formulario f
             LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
-            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
             LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
         """
         cursor = conexion.cursor(dictionary=True)
         condiciones = []
@@ -1005,6 +1050,10 @@ def filtraFormularios(
         if hospital != 0:
             condiciones.append("f.idHospital = %s")
             filtro.append(hospital)
+
+        if especialidad != 0:
+            condiciones.append("f.idEspecialidad = %s")
+            filtro.append(especialidad)
 
         if lista_estados:
             marcadores = ", ".join(["%s"] * len(lista_estados))
