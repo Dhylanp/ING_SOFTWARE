@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth, getNombreRol } from '../context/AuthContext';
+import AlertaContador from '../components/AlertaContador';
 
 export default function Interconsultas() {
   const { usuario, tieneRol } = useAuth();
@@ -38,6 +39,7 @@ export default function Interconsultas() {
         {tieneRol(1) && (
           <Link to="/interconsultas/devueltas">Interconsultas devueltas</Link>
         )}
+        {tieneRol(1) && <AlertaContador />}
         {!tieneRol(4) && (
           <Link to="/EditarPerfil">Revisar mis datos personales</Link>
         )}

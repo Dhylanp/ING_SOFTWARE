@@ -220,12 +220,13 @@ class RevisionEspecialistaTest(BaseFlujo):  # HU23
             self.assertHTTP(400, self.revisa, id_f, "devolver", vacio)
         self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
 
-    def test_devolver_guarda_motivo(self):
+    def test_devolver_guarda_motivo_y_genera_alerta(self):
         id_f = self.crea()
         self.devuelve(id_f)
         f = self.fila(id_f)
         self.assertEqual(f["idEstado"], srv.E_DEVUELTA)
         self.assertEqual(f["motivoDevolucion"], "Falta examen de laboratorio")
+        self.assertEqual(f["alertaRevisada"], 0)
         self.assertIn("DEVUELTA", self.correos(id_f, "cesfam")[0]["asunto"])
 
     def test_correos_no_incluyen_el_motivo_clinico(self):
@@ -349,6 +350,8 @@ class ReenvioTest(BaseFlujo):  # HU05B
         f = self.fila(id_f)
         self.assertEqual((f["idEstado"], f["descripcion"]), (srv.E_TRAMITADA, "Dolor + hemograma adjunto"))
         self.assertEqual([b["idFormulario"] for b in main.bandejaEspecialista(self.esp)], [id_f])
+        # sale del listado de pendientes por corregir (HU16)
+        self.assertEqual(main.alertasDevoluciones(self.admin)["pendientes"], 0)
 
     def test_reenvio_sin_cambios_tambien_es_valido(self):
         id_f = self.crea()
@@ -457,6 +460,39 @@ class CierreTest(BaseFlujo):  # HU09
         id_f = self.crea()
         self.cierra(id_f, "Inasistencia", self.esp)
         self.assertHTTP(403, self.cierra, self.crea(), "Atendido", usuario(ESP_2, 2))
+
+
+class AlertasTest(BaseFlujo):  # HU16
+    def test_contador_y_revision_automatica(self):
+        a, b = self.crea(), self.crea()
+        self.assertEqual(main.alertasDevoluciones(self.admin)["pendientes"], 0)
+        self.devuelve(a)
+        self.devuelve(b)
+        antes = main.alertasDevoluciones(self.admin)
+        self.assertEqual((antes["pendientes"], antes["sinRevisar"]), (2, 2))
+        self.assertEqual(len(antes["items"]), 2)
+        self.assertFalse(antes["items"][0]["revisada"])
+
+        marcadas = main.marcaAlertasRevisadas(self.admin)["marcadas"]
+        self.assertEqual(marcadas, 2)
+        despues = main.alertasDevoluciones(self.admin)
+        self.assertEqual((despues["pendientes"], despues["sinRevisar"]), (2, 0))  # siguen sin gestionar
+        self.assertTrue(all(i["revisada"] for i in despues["items"]))
+        self.assertEqual(main.marcaAlertasRevisadas(self.admin)["marcadas"], 0)
+
+    def test_nueva_devolucion_vuelve_a_generar_alerta(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        main.marcaAlertasRevisadas(self.admin)
+        main.reenviaInterconsulta(id_f, BGInmediato(), None, self.admin)
+        self.devuelve(id_f, "Otro motivo")
+        self.assertEqual(main.alertasDevoluciones(self.admin)["sinRevisar"], 1)
+
+    def test_cada_cesfam_ve_solo_sus_alertas(self):
+        self.devuelve(self.crea())
+        self.assertEqual(main.alertasDevoluciones(usuario(ADMIN_B, 1))["pendientes"], 0)
+        self.assertEqual(main.marcaAlertasRevisadas(usuario(ADMIN_B, 1))["marcadas"], 0)
+        self.assertEqual(main.alertasDevoluciones(self.admin)["sinRevisar"], 1)
 
 
 class NotificacionesTest(BaseFlujo):  # HU15

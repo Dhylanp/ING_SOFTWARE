@@ -1680,7 +1680,7 @@ _SQL_FORMULARIO = """
     SELECT f.idFormulario, f.descripcion, f.fechaInicio, f.idPersona, f.idCesfam,
            f.idHospital, f.idEstado, f.prioridadClinica, f.idEspecialidad,
            f.motivoDevolucion, f.observacionDevolucion, f.fechaDevolucion,
-           f.causalCierre, f.fechaCierre, f.fechaCita, f.centroCita,
+           f.alertaRevisada, f.causalCierre, f.fechaCierre, f.fechaCita, f.centroCita,
            p.nombrePersona,
            ce.nombreCesfam AS nombreCesfam,
            h.nombreHospital,
@@ -1709,6 +1709,7 @@ def _presenta_formulario(f: dict, rol: int | None = None) -> dict:
     d["prioridadClinica"] = normaliza_prioridad_salida(d.get("prioridadClinica"))
     d["fechaDevolucion"] = srv.iso_utc(d.get("fechaDevolucion"))
     d["fechaCita"] = srv.iso_local(d.get("fechaCita"))
+    d["alertaRevisada"] = bool(d.get("alertaRevisada", 1))
     if rol == ROL_PACIENTE:
         for campo in ("motivoDevolucion", "observacionDevolucion", "fechaDevolucion"):
             d[campo] = None
@@ -2045,6 +2046,7 @@ def revisaInterconsulta(
                     "motivoDevolucion": motivo,
                     "observacionDevolucion": observaciones or None,
                     "fechaDevolucion": _ahora_utc(),
+                    "alertaRevisada": 0,   # HU16: genera una alerta nueva para el CESFAM
                 },
             )
             mensaje = "Interconsulta devuelta al CESFAM de origen"
@@ -2143,6 +2145,59 @@ def asignaCita(
         resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), int(usuario["rol"]))
     background.add_task(notifica_cambio_estado, idFormulario, ("paciente",))
     return {"codigo": 1, "mensaje": "Hora médica asignada", "interconsulta": resultado}
+
+
+# ----------------------------------------------------------------------
+# HU16: centro de alertas de devoluciones
+# ----------------------------------------------------------------------
+def _filtro_cesfam(cursor, usuario) -> tuple[str, tuple]:
+    cesfams = sorted(_ids_centro(cursor, int(usuario["sub"]), ROL_ADMINISTRATIVO, "idCesfam"))
+    if not cesfams:
+        return "", ()
+    return " AND f.idCesfam IN (" + ", ".join(["%s"] * len(cesfams)) + ")", tuple(cesfams)
+
+
+@app.get("/alertas/devoluciones")
+def alertasDevoluciones(usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO))):
+    with conexion_db() as (conexion, cursor):
+        extra, params = _filtro_cesfam(cursor, usuario)
+        cursor.execute(
+            _SQL_FORMULARIO + " WHERE f.idEstado = %s" + extra +
+            " ORDER BY f.fechaDevolucion DESC, f.idFormulario DESC",
+            (srv.E_DEVUELTA, *params),
+        )
+        filas = cursor.fetchall()
+        items = [
+            {
+                "idFormulario": f["idFormulario"],
+                "nombrePersona": f["nombrePersona"],
+                "nombreEspecialidad": f["nombreEspecialidad"],
+                "nombreHospital": f["nombreHospital"],
+                "motivo": f["motivoDevolucion"],
+                "fecha": srv.iso_utc(f["fechaDevolucion"]),
+                "revisada": bool(f["alertaRevisada"]),
+            }
+            for f in filas[:50]
+        ]
+        return {
+            "pendientes": len(filas),                                   # devueltas sin gestionar
+            "sinRevisar": sum(1 for f in filas if not f["alertaRevisada"]),
+            "items": items,
+        }
+
+
+@app.post("/alertas/devoluciones/revisar")
+def marcaAlertasRevisadas(usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO))):
+    with conexion_db() as (conexion, cursor):
+        extra, params = _filtro_cesfam(cursor, usuario)
+        cursor.execute(
+            "UPDATE formulario SET alertaRevisada = 1 "
+            "WHERE idEstado = %s AND alertaRevisada = 0" + extra.replace("f.", ""),
+            (srv.E_DEVUELTA, *params),
+        )
+        marcadas = cursor.rowcount
+        conexion.commit()
+        return {"codigo": 1, "marcadas": marcadas}
 
 
 # ----------------------------------------------------------------------
