@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useAuth,
-  getNombreRol,
-  getDescripcionRol
+  getNombreRol
 } from '../context/AuthContext';
 import BotonContacto from '../components/BotonContacto';
 

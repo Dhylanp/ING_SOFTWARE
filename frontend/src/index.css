@@ -259,3 +259,21 @@ a {
 .swal2-success-fix {
   background: transparent !important;
 }
+/* Botón secundario (cancelar, volver): <button className="btn-secundario"> */
+.btn-secundario {
+  background-color: var(--surface-alt);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+}
+
+.btn-secundario:hover:not(:disabled) {
+  background-color: var(--surface-alt);
+  filter: brightness(0.95);
+}
+
+/* Foco visible para quien navega con teclado */
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}

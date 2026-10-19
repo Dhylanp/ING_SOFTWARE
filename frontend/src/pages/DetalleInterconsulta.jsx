@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
-import Swal from 'sweetalert2';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import EstadoBadge from '../components/EstadoBadge';
+import LineaTiempo from '../components/LineaTiempo';
+import ModalCierre from '../components/ModalCierre';
+import ModalCita from '../components/ModalCita';
+import { avisos, mensajeDeError } from '../lib/avisos';
+import { E_DEVUELTA, E_FINALIZADA, E_LISTA_ESPERA, normalizarPrioridad } from '../lib/estados';
+import { formatearCita } from '../lib/fechas';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -60,8 +66,23 @@ export default function DetalleInterconsulta() {
     const { id } = useParams();
     // datos que mandó el listado al hacer clic en "Ver"
     const location = useLocation();
-    const interconsulta = location.state?.interconsulta || null;
     const { tieneRol } = useAuth();
+
+    // la ficha se pide a la API; mientras llega se muestra la que mandó el listado
+    const [interconsulta, setInterconsulta] = useState(location.state?.interconsulta || null);
+    const [errorFicha, setErrorFicha] = useState('');
+    const [recargaFicha, setRecargaFicha] = useState(0);
+
+    // HU07: historial de estados
+    const [historial, setHistorial] = useState([]);
+    const [cargandoHistorial, setCargandoHistorial] = useState(true);
+    const [errorHistorial, setErrorHistorial] = useState('');
+
+    // modales de cierre (HU09) y de hora médica (HU17)
+    const [modal, setModal] = useState(null); // 'cierre' | 'cita' | null
+    const [procesando, setProcesando] = useState(false);
+
+    const puedeGestionar = tieneRol(1) || tieneRol(2);
 
     const [documentos, setDocumentos] = useState([]);
     const [cargandoDocs, setCargandoDocs] = useState(true);
@@ -74,6 +95,72 @@ export default function DetalleInterconsulta() {
     const [subiendo, setSubiendo] = useState(false);
     // cambiar la key del input lo vacía (React lo vuelve a crear)
     const [inputKey, setInputKey] = useState(0);
+
+    // carga la ficha completa y el historial
+    useEffect(() => {
+        let activo = true;
+        api.get(`/formulario/${id}`)
+            .then((r) => {
+                if (activo) {
+                    setInterconsulta(r.data);
+                    setErrorFicha('');
+                }
+            })
+            .catch((err) => {
+                if (activo) setErrorFicha(mensajeDeError(err, 'No se pudo cargar la ficha de la interconsulta.'));
+            });
+
+        if (puedeGestionar) {
+            api.get(`/formulario/${id}/historial`)
+                .then((r) => {
+                    if (activo) {
+                        setHistorial(Array.isArray(r.data) ? r.data : []);
+                        setErrorHistorial('');
+                    }
+                })
+                .catch((err) => {
+                    if (activo) setErrorHistorial(mensajeDeError(err, 'No se pudo cargar el historial.'));
+                })
+                .finally(() => activo && setCargandoHistorial(false));
+        } else {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- sin permiso no hay historial que esperar
+            setCargandoHistorial(false);
+        }
+        return () => {
+            activo = false;
+        };
+        // puedeGestionar depende solo de la sesión
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, recargaFicha]);
+
+    // HU09 / HU17: acciones que cambian el estado
+    const cerrar = async (causal) => {
+        setProcesando(true);
+        try {
+            await api.post(`/formulario/${id}/cierre`, { causal });
+            setModal(null);
+            setRecargaFicha((n) => n + 1);
+            avisos.exito('Interconsulta finalizada', `Causal de cierre: ${causal}.`);
+        } catch (err) {
+            avisos.error('No se pudo cerrar', mensajeDeError(err));
+        } finally {
+            setProcesando(false);
+        }
+    };
+
+    const agendar = async ({ fecha, hora, centro }) => {
+        setProcesando(true);
+        try {
+            await api.post(`/formulario/${id}/cita`, { fecha, hora, centro: centro || null });
+            setModal(null);
+            setRecargaFicha((n) => n + 1);
+            avisos.exito('Hora médica asignada', 'Se envió un correo al paciente con la fecha, la hora y el centro.');
+        } catch (err) {
+            avisos.error('No se pudo asignar la hora', mensajeDeError(err));
+        } finally {
+            setProcesando(false);
+        }
+    };
 
     // carga la lista de documentos de esta interconsulta
     useEffect(() => {
@@ -152,7 +239,7 @@ export default function DetalleInterconsulta() {
             setInputKey((k) => k + 1);
             setRecarga((r) => r + 1);
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'success',
                 title: 'Documento adjuntado',
                 text: respuesta.data.mensaje || 'El documento se adjuntó correctamente.',
@@ -160,7 +247,7 @@ export default function DetalleInterconsulta() {
         } catch (err) {
             const detalle = err.response?.data?.detail;
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'error',
                 title: 'No se pudo adjuntar',
                 text: typeof detalle === 'string' ? detalle : 'Error al procesar la solicitud',
@@ -176,6 +263,8 @@ export default function DetalleInterconsulta() {
 
             <h2 style={{ marginTop: '16px' }}>Interconsulta #{id}</h2>
 
+            {errorFicha && !interconsulta && <p className="texto-error">{errorFicha}</p>}
+
             {interconsulta ? (
                 <div
                     style={{
@@ -183,6 +272,7 @@ export default function DetalleInterconsulta() {
                         border: '1px solid var(--border)',
                         borderRadius: '8px',
                         padding: '16px',
+                        textAlign: 'left',
                     }}
                 >
                     <p style={estiloDato}><strong>Paciente:</strong> {interconsulta.nombrePersona}</p>
@@ -190,17 +280,63 @@ export default function DetalleInterconsulta() {
                     <p style={estiloDato}><strong>Hospital de destino:</strong> {interconsulta.nombreHospital}</p>
                     <p style={estiloDato}><strong>Especialidad de destino:</strong> {interconsulta.nombreEspecialidad || 'No especificada'}</p>
                     <p style={estiloDato}><strong>Fecha de inicio:</strong> {interconsulta.fechaInicio}</p>
-                    <p style={estiloDato}><strong>Estado:</strong> {interconsulta.nombreEstado}</p>
+                    <p style={estiloDato}>
+                        <strong>Estado:</strong>{' '}
+                        <EstadoBadge idEstado={interconsulta.idEstado} nombre={interconsulta.nombreEstado} />
+                    </p>
                     <p style={estiloDato}>
                         <strong>Prioridad:</strong>{' '}
-                        {nombresPrioridad[interconsulta.prioridadClinica] || interconsulta.prioridadClinica}
+                        {nombresPrioridad[normalizarPrioridad(interconsulta.prioridadClinica)] || interconsulta.prioridadClinica}
                     </p>
                     <p style={estiloDato}><strong>Motivo:</strong> {interconsulta.descripcion}</p>
+                    {interconsulta.fechaCita && (
+                        <p style={estiloDato}>
+                            <strong>Hora médica:</strong> {formatearCita(interconsulta.fechaCita)}
+                            {interconsulta.centroCita ? ` · ${interconsulta.centroCita}` : ''}
+                        </p>
+                    )}
+                    {interconsulta.causalCierre && (
+                        <p style={estiloDato}><strong>Causal de cierre:</strong> {interconsulta.causalCierre}</p>
+                    )}
+                    {Number(interconsulta.idEstado) === E_DEVUELTA && interconsulta.motivoDevolucion && (
+                        <div
+                            data-testid="bloque-devolucion"
+                            style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' }}
+                        >
+                            <p><strong>Motivo de devolución:</strong> {interconsulta.motivoDevolucion}</p>
+                            {interconsulta.observacionDevolucion && (
+                                <p><strong>Observaciones:</strong> {interconsulta.observacionDevolucion}</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* acciones según rol y estado */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '14px' }}>
+                        {tieneRol(1) && Number(interconsulta.idEstado) !== E_FINALIZADA && (
+                            <Link to={`/interconsultas/${id}/editar`}>Modificar datos administrativos</Link>
+                        )}
+                        {tieneRol(1) && Number(interconsulta.idEstado) === E_DEVUELTA && (
+                            <Link to={`/interconsultas/${id}/corregir`}>Corregir y reenviar</Link>
+                        )}
+                        {puedeGestionar && Number(interconsulta.idEstado) === E_LISTA_ESPERA && (
+                            <button type="button" onClick={() => setModal('cita')}>Asignar hora médica</button>
+                        )}
+                        {puedeGestionar && Number(interconsulta.idEstado) !== E_FINALIZADA && (
+                            <button type="button" className="btn-peligro" onClick={() => setModal('cierre')}>
+                                Cerrar interconsulta
+                            </button>
+                        )}
+                    </div>
                 </div>
             ) : (
-                <p style={{ color: 'var(--text-muted)' }}>
-                    Para ver los datos de la interconsulta, vuelve al listado y entra con el botón "Ver".
-                </p>
+                !errorFicha && <p style={{ color: 'var(--text-muted)' }}>Cargando ficha...</p>
+            )}
+
+            {puedeGestionar && (
+                <>
+                    <h3 style={{ marginTop: '24px' }}>Historial de estados</h3>
+                    <LineaTiempo eventos={historial} cargando={cargandoHistorial} error={errorHistorial} />
+                </>
             )}
 
             <h3 style={{ marginTop: '24px' }}>Documentos adjuntos</h3>
@@ -271,6 +407,16 @@ export default function DetalleInterconsulta() {
                     </tbody>
                 </table>
             )}
+
+            <ModalCierre abierto={modal === 'cierre'} onCerrar={() => setModal(null)} onConfirmar={cerrar} enviando={procesando} />
+            <ModalCita
+                key={interconsulta?.nombreHospital || 'sin-hospital'}
+                abierto={modal === 'cita'}
+                onCerrar={() => setModal(null)}
+                onConfirmar={agendar}
+                centroSugerido={interconsulta?.nombreHospital || ''}
+                enviando={procesando}
+            />
         </div>
     );
 }

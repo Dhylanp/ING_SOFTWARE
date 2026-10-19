@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import Swal from 'sweetalert2';
 import api from '../api/axios';
+import { avisos } from '../lib/avisos';
 import { useAuth } from '../context/AuthContext';
+import { guardarPendiente } from '../offline/almacen';
+import { getConCache } from '../offline/catalogos';
+import { esErrorDeRed, hayConexion, publicarSesionParaSW } from '../offline/sync';
 
 const formularioVacio = {
     rut: '',
@@ -61,11 +64,11 @@ export default function RegistrarInterconsulta() {
     useEffect(() => {
         const obtenerPersonas = async () => {
             try {
-                const respuesta = await api.get('/persona');
+                const respuesta = await getConCache('/persona');
                 setPersonas(Array.isArray(respuesta.data) ? respuesta.data : []);
             } catch (err) {
                 console.error('[RegistrarInterconsulta] Error personas:', err);
-                Swal.fire({
+                avisos.fire({
                     icon: 'error',
                     title: 'Error',
                     text: 'No se pudo cargar la lista de pacientes.'
@@ -84,9 +87,7 @@ export default function RegistrarInterconsulta() {
                 const url = '/hospital/0';
                 console.log('[RegistrarInterconsulta] GET', url, 'baseURL:', api.defaults.baseURL);
 
-                const respuesta = await api.get(url);
-                console.log('[RegistrarInterconsulta] Status:', respuesta.status);
-                console.log('[RegistrarInterconsulta] Data hospitales:', respuesta.data);
+                const respuesta = await getConCache(url);
 
                 const lista = Array.isArray(respuesta.data) ? respuesta.data : [];
                 setHospitales(lista);
@@ -107,7 +108,7 @@ export default function RegistrarInterconsulta() {
                     texto = 'Error al configurar la petición: ' + err.message;
                 }
 
-                Swal.fire({
+                avisos.fire({
                     icon: 'error',
                     title: 'Error al cargar hospitales',
                     text: texto
@@ -125,11 +126,11 @@ export default function RegistrarInterconsulta() {
         const obtenerEspecialidades = async () => {
             setCargandoEspecialidades(true);
             try {
-                const respuesta = await api.get('/especialidad');
+                const respuesta = await getConCache('/especialidad');
                 setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
             } catch (err) {
                 console.error('[RegistrarInterconsulta] Error especialidades:', err);
-                Swal.fire({
+                avisos.fire({
                     icon: 'error',
                     title: 'Error',
                     text: 'No se pudo cargar la lista de especialidades.'
@@ -191,7 +192,7 @@ export default function RegistrarInterconsulta() {
 
         // si hay errores no se envía nada
         if (Object.keys(nuevos).length > 0) {
-            Swal.fire({
+            avisos.fire({
                 icon: 'warning',
                 title: 'Campos incompletos',
                 text: 'Hay campos pendientes o con errores. Revise los marcados en rojo.'
@@ -199,29 +200,67 @@ export default function RegistrarInterconsulta() {
             return;
         }
 
-        try {
-            const respuesta = await api.post('/formulario', {
-                descripcion: formData.descripcion.trim(),
-                fechaInicio: new Date().toLocaleDateString('en-CA'),
-                idPersona: Number(paciente.idPersona),
-                idCesfam: Number(idCesfamFinal),
-                idHospital: Number(formData.idHospital),
-                idEspecialidad: Number(formData.idEspecialidad),
-                prioridad: formData.prioridad,
+        const payload = {
+            descripcion: formData.descripcion.trim(),
+            fechaInicio: new Date().toLocaleDateString('en-CA'),
+            idPersona: Number(paciente.idPersona),
+            idCesfam: Number(idCesfamFinal),
+            idHospital: Number(formData.idHospital),
+            idEspecialidad: Number(formData.idEspecialidad),
+            prioridad: formData.prioridad,
+        };
+
+        // HU19: sin internet el registro se guarda en el dispositivo y se envía después
+        const guardarSinConexion = async () => {
+            await guardarPendiente({ payload, nombrePaciente: paciente.nombrePersona });
+            await publicarSesionParaSW().catch(() => {});
+            setFormData(formularioVacio);
+            setErrores({});
+            avisos.fire({
+                icon: 'info',
+                title: 'Guardado sin conexión',
+                text: 'No hay conexión a internet. La interconsulta se guardó en este dispositivo (modo offline) y se enviará automáticamente cuando vuelva la conexión.'
             });
+        };
+
+        if (!hayConexion()) {
+            try {
+                await guardarSinConexion();
+            } catch (errLocal) {
+                console.error('[RegistrarInterconsulta] No se pudo guardar localmente:', errLocal);
+                avisos.fire({
+                    icon: 'error',
+                    title: 'No se pudo guardar',
+                    text: 'No hay conexión y tampoco fue posible guardar el registro en este dispositivo.'
+                });
+            }
+            return;
+        }
+
+        try {
+            const respuesta = await api.post('/formulario', payload);
 
             setFormData(formularioVacio);
             setErrores({});
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'success',
                 title: 'Interconsulta registrada',
                 text: respuesta.data.mensaje || 'La interconsulta fue registrada correctamente.'
             });
         } catch (err) {
+            // la conexión se cayó justo al enviar: también se guarda localmente
+            if (esErrorDeRed(err)) {
+                try {
+                    await guardarSinConexion();
+                    return;
+                } catch (errLocal) {
+                    console.error('[RegistrarInterconsulta] No se pudo guardar localmente:', errLocal);
+                }
+            }
             const detalle = err.response?.data?.detail;
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'error',
                 title: 'Error',
                 text: typeof detalle === 'string' ? detalle : 'Error al procesar la solicitud'
