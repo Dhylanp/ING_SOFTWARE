@@ -4,6 +4,7 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import EstadoBadge from '../components/EstadoBadge';
 import LineaTiempo from '../components/LineaTiempo';
+import ModalCierre from '../components/ModalCierre';
 import { avisos, mensajeDeError } from '../lib/avisos';
 import { E_DEVUELTA, E_FINALIZADA, normalizarPrioridad } from '../lib/estados';
 
@@ -68,11 +69,16 @@ export default function DetalleInterconsulta() {
     // la ficha se pide a la API; mientras llega se muestra la que mandó el listado
     const [interconsulta, setInterconsulta] = useState(location.state?.interconsulta || null);
     const [errorFicha, setErrorFicha] = useState('');
+    const [recargaFicha, setRecargaFicha] = useState(0);
 
     // HU07: historial de estados
     const [historial, setHistorial] = useState([]);
     const [cargandoHistorial, setCargandoHistorial] = useState(true);
     const [errorHistorial, setErrorHistorial] = useState('');
+
+    // modal de cierre (HU09)
+    const [modal, setModal] = useState(null); // 'cierre' | null
+    const [procesando, setProcesando] = useState(false);
 
     const puedeGestionar = tieneRol(1) || tieneRol(2);
 
@@ -123,7 +129,22 @@ export default function DetalleInterconsulta() {
         };
         // puedeGestionar depende solo de la sesión
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+    }, [id, recargaFicha]);
+
+    // HU09: cierre de la interconsulta
+    const cerrar = async (causal) => {
+        setProcesando(true);
+        try {
+            await api.post(`/formulario/${id}/cierre`, { causal });
+            setModal(null);
+            setRecargaFicha((n) => n + 1);
+            avisos.exito('Interconsulta finalizada', `Causal de cierre: ${causal}.`);
+        } catch (err) {
+            avisos.error('No se pudo cerrar', mensajeDeError(err));
+        } finally {
+            setProcesando(false);
+        }
+    };
 
     // carga la lista de documentos de esta interconsulta
     useEffect(() => {
@@ -252,6 +273,9 @@ export default function DetalleInterconsulta() {
                         {nombresPrioridad[normalizarPrioridad(interconsulta.prioridadClinica)] || interconsulta.prioridadClinica}
                     </p>
                     <p style={estiloDato}><strong>Motivo:</strong> {interconsulta.descripcion}</p>
+                    {interconsulta.causalCierre && (
+                        <p style={estiloDato}><strong>Causal de cierre:</strong> {interconsulta.causalCierre}</p>
+                    )}
                     {Number(interconsulta.idEstado) === E_DEVUELTA && interconsulta.motivoDevolucion && (
                         <div
                             data-testid="bloque-devolucion"
@@ -271,6 +295,11 @@ export default function DetalleInterconsulta() {
                         )}
                         {tieneRol(1) && Number(interconsulta.idEstado) === E_DEVUELTA && (
                             <Link to={`/interconsultas/${id}/corregir`}>Corregir y reenviar</Link>
+                        )}
+                        {puedeGestionar && Number(interconsulta.idEstado) !== E_FINALIZADA && (
+                            <button type="button" className="btn-peligro" onClick={() => setModal('cierre')}>
+                                Cerrar interconsulta
+                            </button>
                         )}
                     </div>
                 </div>
@@ -353,6 +382,8 @@ export default function DetalleInterconsulta() {
                     </tbody>
                 </table>
             )}
+
+            <ModalCierre abierto={modal === 'cierre'} onCerrar={() => setModal(null)} onConfirmar={cerrar} enviando={procesando} />
         </div>
     );
 }

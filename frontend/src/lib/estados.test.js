@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ESTADOS, nombreEstado, normalizarPrioridad } from './estados'
+import { CAUSALES_CIERRE, ESTADOS, nombreEstado, normalizarPrioridad } from './estados'
 
 describe('estados del flujo', () => {
   test('define las seis etapas en orden', () => {
@@ -12,6 +12,10 @@ describe('estados del flujo', () => {
     expect(nombreEstado(3)).toBe('Devuelta')
     expect(nombreEstado('6')).toBe('Finalizada')
     expect(nombreEstado(99)).toBe('Desconocido')
+  })
+
+  test('las causales de cierre son exactamente las cinco de la HU09', () => {
+    expect(CAUSALES_CIERRE).toEqual(['Atendido', 'Inasistencia', 'Rechazo', 'Fallecimiento', 'Retiro voluntario'])
   })
 
   test('normalizarPrioridad acepta texto o número y rechaza lo demás', () => {

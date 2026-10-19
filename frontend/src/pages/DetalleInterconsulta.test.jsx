@@ -1,5 +1,7 @@
 import { screen } from '@testing-library/react'
-import { beforeEach, describe, expect, test } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { avisos } from '../lib/avisos'
 import { mockApi, renderPagina, USUARIO_ESPECIALISTA } from '../test/utils'
 import DetalleInterconsulta from './DetalleInterconsulta'
 
@@ -13,7 +15,7 @@ const historial = [
 ]
 const detalle = { path: '/interconsultas/:id', ruta: '/interconsultas/9' }
 
-describe('DetalleInterconsulta (HU07)', () => {
+describe('DetalleInterconsulta (HU07 / HU09)', () => {
   beforeEach(() => localStorage.clear())
 
   test('muestra la línea de tiempo y las acciones según rol y estado', async () => {
@@ -26,6 +28,7 @@ describe('DetalleInterconsulta (HU07)', () => {
     // Assert
     expect(await screen.findAllByTestId('evento-historial')).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Modificar datos administrativos' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar interconsulta' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Corregir y reenviar' })).not.toBeInTheDocument()
   })
 
@@ -37,7 +40,7 @@ describe('DetalleInterconsulta (HU07)', () => {
     renderPagina(<DetalleInterconsulta />, { ...detalle, usuario: USUARIO_ESPECIALISTA })
 
     // Assert
-    expect(await screen.findAllByTestId('evento-historial')).toHaveLength(2)
+    expect(await screen.findByRole('button', { name: 'Cerrar interconsulta' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Modificar datos administrativos' })).not.toBeInTheDocument()
   })
 
@@ -51,7 +54,33 @@ describe('DetalleInterconsulta (HU07)', () => {
     // Assert
     expect(await screen.findByText('Interconsulta #9')).toBeInTheDocument()
     await screen.findAllByText('Finalizada')
+    expect(screen.queryByRole('button', { name: 'Cerrar interconsulta' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Modificar datos administrativos' })).not.toBeInTheDocument()
   })
 
+  test('cerrar exige causal y la envía', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const api = mockApi({
+      'GET /formulario/9': ficha(),
+      'GET /formulario/9/historial': historial,
+      'GET /formulario/9/documentos': [],
+      'POST /formulario/9/cierre': {},
+    })
+    const exito = vi.spyOn(avisos, 'exito').mockResolvedValue({})
+    renderPagina(<DetalleInterconsulta />, detalle)
+    await user.click(await screen.findByRole('button', { name: 'Cerrar interconsulta' }))
+
+    // Act
+    await user.click(screen.getByRole('button', { name: 'Confirmar cierre' }))
+    const textoAlerta = (await screen.findByRole('alert')).textContent
+    await user.click(screen.getByRole('radio', { name: 'Atendido' }))
+    await user.click(screen.getByRole('button', { name: 'Confirmar cierre' }))
+
+    // Assert
+    expect(textoAlerta).toBe('Seleccione una causal de cierre.')
+    await vi.waitFor(() => expect(exito).toHaveBeenCalledWith('Interconsulta finalizada', 'Causal de cierre: Atendido.'))
+    expect(api.post).toHaveBeenCalledWith('/formulario/9/cierre', { causal: 'Atendido' })
+    expect(api.post).toHaveBeenCalledTimes(1)
+  })
 })

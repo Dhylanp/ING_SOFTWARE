@@ -1680,6 +1680,7 @@ _SQL_FORMULARIO = """
     SELECT f.idFormulario, f.descripcion, f.fechaInicio, f.idPersona, f.idCesfam,
            f.idHospital, f.idEstado, f.prioridadClinica, f.idEspecialidad,
            f.motivoDevolucion, f.observacionDevolucion, f.fechaDevolucion,
+           f.causalCierre, f.fechaCierre,
            p.nombrePersona,
            ce.nombreCesfam AS nombreCesfam,
            h.nombreHospital,
@@ -1785,7 +1786,7 @@ def _registra_correo(cursor, id_formulario, tipo, destinatario, asunto, cuerpo, 
     )
 
 
-def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
+def notifica_cambio_estado(id_formulario: int, destinos=("paciente",), causal: str | None = None):
     """
     Envía el correo que corresponde a la etapa actual del caso.
     Se ejecuta DESPUÉS de confirmar la transacción (BackgroundTasks) y nunca
@@ -1805,6 +1806,7 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
                 asunto, cuerpo = srv.correo_paciente(
                     f["idEstado"], f["nombrePersona"] or "paciente", id_formulario,
                     f["nombreEspecialidad"], f["nombreHospital"],
+                    causal=f.get("causalCierre"),
                 )
                 destinatario = correos[0] if correos else ""
                 estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
@@ -1862,6 +1864,10 @@ class RevisionEspecialista(BaseModel):
     accion: Literal["aceptar", "devolver"]
     motivo: str | None = Field(default=None, max_length=300)
     observaciones: str | None = Field(default=None, max_length=500)
+
+
+class CierreEntrada(BaseModel):
+    causal: str | None = None
 
 
 # ----------------------------------------------------------------------
@@ -2064,6 +2070,34 @@ def obtieneHistorial(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
             e["fecha"] = srv.iso_utc(e["fecha"])
             e["usuario"] = e["usuario"] or "Sistema"
         return eventos
+
+
+# ----------------------------------------------------------------------
+# HU09: cierre
+# ----------------------------------------------------------------------
+@app.post("/formulario/{idFormulario}/cierre")
+def cierraInterconsulta(
+    idFormulario: int,
+    datos: CierreEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO, ROL_ESPECIALISTA)),
+):
+    try:
+        causal = srv.normaliza_causal(datos.causal)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        _cambia_estado(
+            cursor, f, "cerrar", usuario, f"Cerrada. Causal: {causal}",
+            {"causalCierre": causal, "fechaCierre": date.today()},
+        )
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), int(usuario["rol"]))
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",), causal)
+    return {"codigo": 1, "mensaje": "Interconsulta finalizada", "interconsulta": resultado}
 
 
 # ----------------------------------------------------------------------

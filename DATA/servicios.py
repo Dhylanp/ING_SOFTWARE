@@ -3,7 +3,8 @@ Lógica de negocio del flujo de interconsultas que NO depende de FastAPI ni de
 la base de datos, para poder probarla de forma aislada (ver DATA/tests).
 
 Contiene:
-  - Estados del flujo y transiciones permitidas (HU05B, HU23).
+  - Estados del flujo y transiciones permitidas (HU05B, HU09, HU23).
+  - Causales de cierre (HU09).
   - Plantillas de correo por etapa (HU15, HU23).
   - Envío de correo por SMTP, con modo "simulado" si no hay SMTP configurado.
   - Utilidades de fecha.
@@ -43,7 +44,20 @@ TRANSICIONES = {
     "aceptar": ({E_REGISTRADA, E_TRAMITADA}, E_LISTA_ESPERA),
     "devolver": ({E_REGISTRADA, E_TRAMITADA}, E_DEVUELTA),
     "reenviar": ({E_DEVUELTA}, E_TRAMITADA),
+    "cerrar": (
+        {E_REGISTRADA, E_LISTA_ESPERA, E_DEVUELTA, E_TRAMITADA, E_AGENDADA},
+        E_FINALIZADA,
+    ),
 }
+
+CAUSALES_CIERRE = (
+    "Atendido",
+    "Inasistencia",
+    "Rechazo",
+    "Fallecimiento",
+    "Retiro voluntario",
+)
+
 
 def valida_transicion(accion: str, estado_actual: int) -> int:
     """Devuelve el estado destino o lanza ValueError con un mensaje legible."""
@@ -56,6 +70,19 @@ def valida_transicion(accion: str, estado_actual: int) -> int:
             f"No se puede ejecutar '{accion}' sobre una interconsulta en estado '{actual}'"
         )
     return destino
+
+
+def normaliza_causal(causal: str | None) -> str:
+    """Valida que la causal pertenezca a la lista oficial (HU09)."""
+    if causal is None or not str(causal).strip():
+        raise ValueError("La causal de cierre es obligatoria")
+    valor = " ".join(str(causal).split())
+    for oficial in CAUSALES_CIERRE:
+        if oficial.lower() == valor.lower():
+            return oficial
+    raise ValueError(
+        "Causal de cierre inválida. Opciones: " + ", ".join(CAUSALES_CIERRE)
+    )
 
 
 # ----------------------------------------------------------------------
@@ -89,6 +116,7 @@ def correo_paciente(
     id_formulario: int,
     especialidad: str | None = None,
     hospital: str | None = None,
+    causal: str | None = None,
 ) -> tuple[str, str]:
     """Plantilla predefinida según la etapa del flujo (HU15)."""
     esp = f" de {especialidad}" if especialidad else ""
@@ -123,6 +151,14 @@ def correo_paciente(
             + f"Su interconsulta{esp} requiere una corrección administrativa en su CESFAM. "
             "El equipo del CESFAM la gestionará y le informará cualquier novedad."
             + f"\n{caso}"
+        )
+    elif id_estado == E_FINALIZADA:
+        asunto = f"Interconsulta #{id_formulario}: finalizada"
+        cuerpo = (
+            saludo
+            + f"Su interconsulta{esp} fue cerrada"
+            + (f" (motivo: {causal})" if causal else "")
+            + f".\n{caso}"
         )
     else:
         asunto = f"Interconsulta #{id_formulario}: cambio de estado"

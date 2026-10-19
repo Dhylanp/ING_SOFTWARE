@@ -319,7 +319,7 @@ class EdicionAdministrativaTest(BaseFlujo):  # HU03
         id_f = self.crea()
         self.assertHTTP(403, main.modificaDatosAdministrativos, id_f,
                         main.EdicionAdministrativa(descripcion="x"), usuario(ADMIN_B, 1))
-        self.raw.execute("UPDATE formulario SET idEstado = ? WHERE idFormulario = ?", (srv.E_FINALIZADA, id_f))
+        main.cierraInterconsulta(id_f, main.CierreEntrada(causal="Atendido"), BGInmediato(), self.admin)
         self.assertHTTP(409, main.modificaDatosAdministrativos, id_f,
                         main.EdicionAdministrativa(descripcion="x"), self.admin)
 
@@ -390,6 +390,38 @@ class HistorialTest(BaseFlujo):  # HU07
         id_f = self.crea()
         self.assertHTTP(403, main.obtieneHistorial, id_f, usuario(ESP_2, 2))
         self.assertHTTP(404, main.obtieneHistorial, 999, self.admin)
+
+
+class CierreTest(BaseFlujo):  # HU09
+    def cierra(self, id_f, causal, user=None):
+        return main.cierraInterconsulta(id_f, main.CierreEntrada(causal=causal), BGInmediato(), user or self.admin)
+
+    def test_causal_obligatoria_y_valida(self):
+        id_f = self.crea()
+        self.assertHTTP(400, self.cierra, id_f, None)
+        self.assertHTTP(400, self.cierra, id_f, "")
+        self.assertHTTP(400, self.cierra, id_f, "Cualquier cosa")
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
+
+    def test_cada_causal_oficial_finaliza_y_guarda_fecha_y_causal(self):
+        for causal in srv.CAUSALES_CIERRE:
+            id_f = self.crea()
+            res = self.cierra(id_f, causal)
+            f = self.fila(id_f)
+            self.assertEqual((f["idEstado"], f["causalCierre"]), (srv.E_FINALIZADA, causal))
+            self.assertEqual(f["fechaCierre"], date.today().isoformat())
+            self.assertEqual(res["interconsulta"]["nombreEstado"], "Finalizada")
+
+    def test_no_se_cierra_dos_veces_y_queda_en_historial(self):
+        id_f = self.crea()
+        self.cierra(id_f, "Atendido")
+        self.assertHTTP(409, self.cierra, id_f, "Rechazo")
+        self.assertIn("Causal: Atendido", main.obtieneHistorial(id_f, self.admin)[-1]["comentario"])
+
+    def test_el_especialista_tambien_puede_cerrar_en_su_hospital(self):
+        id_f = self.crea()
+        self.cierra(id_f, "Inasistencia", self.esp)
+        self.assertHTTP(403, self.cierra, self.crea(), "Atendido", usuario(ESP_2, 2))
 
 
 class NotificacionesTest(BaseFlujo):  # HU15

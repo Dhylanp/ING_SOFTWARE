@@ -26,9 +26,35 @@ class TransicionesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             srv.valida_transicion("reenviar", srv.E_REGISTRADA)
 
+    def test_cerrar_cualquier_estado_salvo_finalizada(self):
+        for origen in (1, 2, 3, 4, 5):
+            self.assertEqual(srv.valida_transicion("cerrar", origen), srv.E_FINALIZADA)
+        with self.assertRaises(ValueError):
+            srv.valida_transicion("cerrar", srv.E_FINALIZADA)
+
     def test_accion_desconocida(self):
         with self.assertRaises(ValueError):
             srv.valida_transicion("borrar", 1)
+
+
+class CausalTest(unittest.TestCase):
+    def test_causales_oficiales(self):
+        self.assertEqual(
+            srv.CAUSALES_CIERRE,
+            ("Atendido", "Inasistencia", "Rechazo", "Fallecimiento", "Retiro voluntario"),
+        )
+
+    def test_normaliza_mayusculas_y_espacios(self):
+        self.assertEqual(srv.normaliza_causal("  retiro   VOLUNTARIO "), "Retiro voluntario")
+
+    def test_obligatoria(self):
+        for vacio in (None, "", "   "):
+            with self.assertRaises(ValueError):
+                srv.normaliza_causal(vacio)
+
+    def test_invalida(self):
+        with self.assertRaises(ValueError):
+            srv.normaliza_causal("Porque sí")
 
 
 class FechasTest(unittest.TestCase):
@@ -40,7 +66,7 @@ class FechasTest(unittest.TestCase):
 
 class PlantillasTest(unittest.TestCase):
     def test_cada_etapa_tiene_plantilla_propia(self):
-        etapas = (srv.E_REGISTRADA, srv.E_LISTA_ESPERA, srv.E_DEVUELTA, srv.E_TRAMITADA)
+        etapas = (srv.E_REGISTRADA, srv.E_LISTA_ESPERA, srv.E_DEVUELTA, srv.E_TRAMITADA, srv.E_FINALIZADA)
         asuntos = set()
         for estado in etapas:
             asunto, cuerpo = srv.correo_paciente(estado, "Ana Pérez", 42, "Cardiología", "Hospital X")

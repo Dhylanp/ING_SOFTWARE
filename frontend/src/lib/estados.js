@@ -29,6 +29,14 @@ export const COLORES_ESTADO = {
   [E_FINALIZADA]: { backgroundColor: 'var(--surface-alt)', color: 'var(--text-muted)' },
 };
 
+export const CAUSALES_CIERRE = [
+  'Atendido',
+  'Inasistencia',
+  'Rechazo',
+  'Fallecimiento',
+  'Retiro voluntario',
+];
+
 export const PRIORIDADES = [
   { valor: 'alta', nombre: 'Alta' },
   { valor: 'media', nombre: 'Media' },
