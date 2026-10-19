@@ -64,7 +64,7 @@ export default function ListadoInterconsultas() {
   const filtrosMemo = useMemo(() => filtros, [filtros]);
 
   return (
-    <div style={{ maxWidth: '900px', margin: '40px auto', padding: '20px' }}>
+    <div style={{ maxWidth: '1400px', margin: '40px auto', padding: '20px' }}>
 
       {tieneRol(1) && <PendientesLocales />}
 

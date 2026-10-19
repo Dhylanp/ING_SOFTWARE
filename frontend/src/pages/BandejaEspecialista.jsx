@@ -81,7 +81,7 @@ export default function BandejaEspecialista() {
   };
 
   return (
-    <div style={{ width: '100%', maxWidth: '1000px', margin: '40px auto', padding: '20px', boxSizing: 'border-box' }}>
+    <div style={{ width: '100%', maxWidth: '1400px', margin: '40px auto', padding: '20px', boxSizing: 'border-box' }}>
       <Link to="/interconsultas">← Volver al inicio</Link>
       <h2 style={{ marginTop: '16px' }}>Bandeja de revisión</h2>
       <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../api/axios';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // ajusta la ruta si es distinta
 import EstadoBadge from './EstadoBadge';
 import { E_FINALIZADA, normalizarPrioridad } from '../lib/estados';
@@ -37,10 +37,17 @@ const estiloEncabezado = {
     color: 'var(--text-h)',
 };
 
+// Celda de acciones: nowrap evita que los botones se partan en dos líneas
+const estiloCeldaAcciones = {
+    ...estiloCelda,
+    whiteSpace: 'nowrap',
+};
+
 export default function TablaInterconsultas({ filtros, refresco = 0 }) {
     const [interconsultas, setInterconsultas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(null);
+    const navigate = useNavigate();
 
     // 👇 Datos de sesión: si es paciente (rol 3), filtramos por su idPersona
     const { idPersona, idRol, usuario } = useAuth();
@@ -135,66 +142,72 @@ export default function TablaInterconsultas({ filtros, refresco = 0 }) {
             {interconsultas.length === 0 ? (
                 !cargando && <p>Sin resultados</p>
             ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', backgroundColor: 'var(--surface)' }}>
-                    <thead>
-                        <tr style={{ textAlign: 'left' }}>
-                            <th style={estiloEncabezado}>ID</th>
-                            <th style={estiloEncabezado}>Descripcion</th>
-                            <th style={estiloEncabezado}>Fecha de inicio</th>
-                            <th style={estiloEncabezado}>Persona</th>
-                            <th style={estiloEncabezado}>CESFAM</th>
-                            <th style={estiloEncabezado}>Hospital</th>
-                            <th style={estiloEncabezado}>Especialidad</th>
-                            <th style={estiloEncabezado}>Estado</th>
-                            <th style={estiloEncabezado}>Prioridad</th>
-                            <th style={estiloEncabezado}>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {interconsultas.map((item) => {
-                            const prioridad = normalizarPrioridad(item.prioridadClinica);
-                            return (
-                                <tr key={item.idFormulario}>
-                                    <td style={estiloCelda}>#{item.idFormulario}</td>
-                                    <td style={estiloCelda}>{item.descripcion}</td>
-                                    <td style={estiloCelda}>{item.fechaInicio}</td>
-                                    <td style={estiloCelda}>{item.nombrePersona}</td>
-                                    <td style={estiloCelda}>{item.nombreCesfam}</td>
-                                    <td style={estiloCelda}>{item.nombreHospital}</td>
-                                    <td style={estiloCelda}>{item.nombreEspecialidad || 'No especificada'}</td>
-                                    <td style={estiloCelda}>
-                                        <EstadoBadge idEstado={item.idEstado} nombre={item.nombreEstado} />
-                                    </td>
-                                    <td style={estiloCelda}>
-                                        {prioridad ? (
-                                            <span style={{ ...estiloEtiqueta, ...estilosPrioridad[prioridad] }}>
-                                                {nombresPrioridad[prioridad]}
-                                            </span>
-                                        ) : (
-                                            <span style={estiloEtiqueta}>
-                                                {item.prioridadClinica ?? '—'}
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td style={estiloCelda}>
-                                        <Link
-                                            to={`/interconsultas/${item.idFormulario}`}
-                                            state={{ interconsulta: item }}
-                                        >
-                                            Ver
-                                        </Link>
-                                        {Number(idRol) === 1 && Number(item.idEstado) !== E_FINALIZADA && (
-                                            <>
-                                                {' · '}
-                                                <Link to={`/interconsultas/${item.idFormulario}/editar`}>Editar</Link>
-                                            </>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', backgroundColor: 'var(--surface)' }}>
+                        <thead>
+                            <tr style={{ textAlign: 'left' }}>
+                                <th style={estiloEncabezado}>ID</th>
+                                <th style={estiloEncabezado}>Descripcion</th>
+                                <th style={estiloEncabezado}>Fecha de inicio</th>
+                                <th style={estiloEncabezado}>Persona</th>
+                                <th style={estiloEncabezado}>CESFAM</th>
+                                <th style={estiloEncabezado}>Hospital</th>
+                                <th style={estiloEncabezado}>Especialidad</th>
+                                <th style={estiloEncabezado}>Estado</th>
+                                <th style={estiloEncabezado}>Prioridad</th>
+                                <th style={estiloEncabezado}>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {interconsultas.map((item) => {
+                                const prioridad = normalizarPrioridad(item.prioridadClinica);
+                                return (
+                                    <tr key={item.idFormulario}>
+                                        <td style={estiloCelda}>#{item.idFormulario}</td>
+                                        <td style={estiloCelda}>{item.descripcion}</td>
+                                        <td style={estiloCelda}>{item.fechaInicio}</td>
+                                        <td style={estiloCelda}>{item.nombrePersona}</td>
+                                        <td style={estiloCelda}>{item.nombreCesfam}</td>
+                                        <td style={estiloCelda}>{item.nombreHospital}</td>
+                                        <td style={estiloCelda}>{item.nombreEspecialidad || 'No especificada'}</td>
+                                        <td style={estiloCelda}>
+                                            <EstadoBadge idEstado={item.idEstado} nombre={item.nombreEstado} />
+                                        </td>
+                                        <td style={estiloCelda}>
+                                            {prioridad ? (
+                                                <span style={{ ...estiloEtiqueta, ...estilosPrioridad[prioridad] }}>
+                                                    {nombresPrioridad[prioridad]}
+                                                </span>
+                                            ) : (
+                                                <span style={estiloEtiqueta}>
+                                                    {item.prioridadClinica ?? '—'}
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td style={estiloCeldaAcciones}>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigate(`/interconsultas/${item.idFormulario}`, { state: { interconsulta: item } })}
+                                                >
+                                                    Ver
+                                                </button>
+                                                {Number(idRol) === 1 && Number(item.idEstado) !== E_FINALIZADA && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => navigate(`/interconsultas/${item.idFormulario}/editar`)}
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             )}
         </div>
     );
