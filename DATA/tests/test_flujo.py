@@ -9,7 +9,7 @@ import logging
 import os
 import sqlite3
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest import mock
 
 os.environ["JWT_SECRET"] = os.environ.get("JWT_SECRET") or "secreto-de-pruebas"  # vacío cuenta como ausente
@@ -392,6 +392,41 @@ class HistorialTest(BaseFlujo):  # HU07
         self.assertHTTP(404, main.obtieneHistorial, 999, self.admin)
 
 
+class CitaTest(BaseFlujo):  # HU17
+    def agenda(self, id_f, fecha=None, hora="09:30", centro=None, user=None):
+        fecha = fecha or date.today() + timedelta(days=7)
+        return main.asignaCita(id_f, main.CitaEntrada(fecha=fecha, hora=hora, centro=centro),
+                               BGInmediato(), user or self.admin)
+
+    def test_asigna_hora_y_envia_correo_con_fecha_hora_y_centro(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        fecha = date.today() + timedelta(days=7)
+        res = self.agenda(id_f, fecha, "10:15", "CESFAM A - Sala 3")
+        self.assertEqual(res["interconsulta"]["nombreEstado"], "Agendada")
+        self.assertEqual(res["interconsulta"]["fechaCita"], f"{fecha.isoformat()}T10:15")
+        cuerpo = self.correos(id_f, "paciente")[-1]["cuerpo"]
+        self.assertIn(fecha.strftime("%d-%m-%Y"), cuerpo)
+        self.assertIn("10:15", cuerpo)
+        self.assertIn("CESFAM A - Sala 3", cuerpo)
+
+    def test_centro_por_defecto_es_el_hospital(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        self.agenda(id_f)
+        self.assertIn("Hospital Uno", self.correos(id_f, "paciente")[-1]["cuerpo"])
+
+    def test_validaciones(self):
+        id_f = self.crea()
+        self.assertHTTP(409, self.agenda, id_f)  # aún no está en lista de espera
+        self.revisa(id_f, "aceptar")
+        self.assertHTTP(400, self.agenda, id_f, date.today() - timedelta(days=1))
+        self.assertHTTP(400, self.agenda, id_f, None, "25:99")
+        self.assertHTTP(403, self.agenda, id_f, None, "09:00", None, usuario(ESP_2, 2))
+        self.agenda(id_f)
+        self.assertHTTP(409, self.agenda, id_f)  # ya agendada
+
+
 class CierreTest(BaseFlujo):  # HU09
     def cierra(self, id_f, causal, user=None):
         return main.cierraInterconsulta(id_f, main.CierreEntrada(causal=causal), BGInmediato(), user or self.admin)
@@ -425,6 +460,19 @@ class CierreTest(BaseFlujo):  # HU09
 
 
 class NotificacionesTest(BaseFlujo):  # HU15
+    def test_una_plantilla_distinta_por_etapa(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        main.asignaCita(id_f, main.CitaEntrada(fecha=date.today() + timedelta(days=3), hora="08:00"),
+                        BGInmediato(), self.admin)
+        main.cierraInterconsulta(id_f, main.CierreEntrada(causal="Atendido"), BGInmediato(), self.admin)
+        asuntos = [c["asunto"] for c in self.correos(id_f, "paciente")]
+        self.assertEqual(len(asuntos), 4)
+        self.assertEqual(len(set(asuntos)), 4)
+        self.assertIn("registrada", asuntos[0])
+        self.assertIn("hora médica asignada", asuntos[2])
+        self.assertIn("finalizada", asuntos[3])
+
     def test_sin_correo_registrado_queda_en_bitacora(self):
         self.raw.execute("DELETE FROM persona_correos WHERE idPersona = ?", (PACIENTE,))
         id_f = self.crea()

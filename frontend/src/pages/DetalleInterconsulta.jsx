@@ -5,8 +5,10 @@ import { useAuth } from '../context/AuthContext';
 import EstadoBadge from '../components/EstadoBadge';
 import LineaTiempo from '../components/LineaTiempo';
 import ModalCierre from '../components/ModalCierre';
+import ModalCita from '../components/ModalCita';
 import { avisos, mensajeDeError } from '../lib/avisos';
-import { E_DEVUELTA, E_FINALIZADA, normalizarPrioridad } from '../lib/estados';
+import { E_DEVUELTA, E_FINALIZADA, E_LISTA_ESPERA, normalizarPrioridad } from '../lib/estados';
+import { formatearCita } from '../lib/fechas';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -76,8 +78,8 @@ export default function DetalleInterconsulta() {
     const [cargandoHistorial, setCargandoHistorial] = useState(true);
     const [errorHistorial, setErrorHistorial] = useState('');
 
-    // modal de cierre (HU09)
-    const [modal, setModal] = useState(null); // 'cierre' | null
+    // modales de cierre (HU09) y de hora médica (HU17)
+    const [modal, setModal] = useState(null); // 'cierre' | 'cita' | null
     const [procesando, setProcesando] = useState(false);
 
     const puedeGestionar = tieneRol(1) || tieneRol(2);
@@ -131,7 +133,7 @@ export default function DetalleInterconsulta() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, recargaFicha]);
 
-    // HU09: cierre de la interconsulta
+    // HU09 / HU17: acciones que cambian el estado
     const cerrar = async (causal) => {
         setProcesando(true);
         try {
@@ -141,6 +143,20 @@ export default function DetalleInterconsulta() {
             avisos.exito('Interconsulta finalizada', `Causal de cierre: ${causal}.`);
         } catch (err) {
             avisos.error('No se pudo cerrar', mensajeDeError(err));
+        } finally {
+            setProcesando(false);
+        }
+    };
+
+    const agendar = async ({ fecha, hora, centro }) => {
+        setProcesando(true);
+        try {
+            await api.post(`/formulario/${id}/cita`, { fecha, hora, centro: centro || null });
+            setModal(null);
+            setRecargaFicha((n) => n + 1);
+            avisos.exito('Hora médica asignada', 'Se envió un correo al paciente con la fecha, la hora y el centro.');
+        } catch (err) {
+            avisos.error('No se pudo asignar la hora', mensajeDeError(err));
         } finally {
             setProcesando(false);
         }
@@ -273,6 +289,12 @@ export default function DetalleInterconsulta() {
                         {nombresPrioridad[normalizarPrioridad(interconsulta.prioridadClinica)] || interconsulta.prioridadClinica}
                     </p>
                     <p style={estiloDato}><strong>Motivo:</strong> {interconsulta.descripcion}</p>
+                    {interconsulta.fechaCita && (
+                        <p style={estiloDato}>
+                            <strong>Hora médica:</strong> {formatearCita(interconsulta.fechaCita)}
+                            {interconsulta.centroCita ? ` · ${interconsulta.centroCita}` : ''}
+                        </p>
+                    )}
                     {interconsulta.causalCierre && (
                         <p style={estiloDato}><strong>Causal de cierre:</strong> {interconsulta.causalCierre}</p>
                     )}
@@ -295,6 +317,9 @@ export default function DetalleInterconsulta() {
                         )}
                         {tieneRol(1) && Number(interconsulta.idEstado) === E_DEVUELTA && (
                             <Link to={`/interconsultas/${id}/corregir`}>Corregir y reenviar</Link>
+                        )}
+                        {puedeGestionar && Number(interconsulta.idEstado) === E_LISTA_ESPERA && (
+                            <button type="button" onClick={() => setModal('cita')}>Asignar hora médica</button>
                         )}
                         {puedeGestionar && Number(interconsulta.idEstado) !== E_FINALIZADA && (
                             <button type="button" className="btn-peligro" onClick={() => setModal('cierre')}>
@@ -384,6 +409,14 @@ export default function DetalleInterconsulta() {
             )}
 
             <ModalCierre abierto={modal === 'cierre'} onCerrar={() => setModal(null)} onConfirmar={cerrar} enviando={procesando} />
+            <ModalCita
+                key={interconsulta?.nombreHospital || 'sin-hospital'}
+                abierto={modal === 'cita'}
+                onCerrar={() => setModal(null)}
+                onConfirmar={agendar}
+                centroSugerido={interconsulta?.nombreHospital || ''}
+                enviando={procesando}
+            />
         </div>
     );
 }

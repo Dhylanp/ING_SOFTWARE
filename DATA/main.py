@@ -1680,7 +1680,7 @@ _SQL_FORMULARIO = """
     SELECT f.idFormulario, f.descripcion, f.fechaInicio, f.idPersona, f.idCesfam,
            f.idHospital, f.idEstado, f.prioridadClinica, f.idEspecialidad,
            f.motivoDevolucion, f.observacionDevolucion, f.fechaDevolucion,
-           f.causalCierre, f.fechaCierre,
+           f.causalCierre, f.fechaCierre, f.fechaCita, f.centroCita,
            p.nombrePersona,
            ce.nombreCesfam AS nombreCesfam,
            h.nombreHospital,
@@ -1708,6 +1708,7 @@ def _presenta_formulario(f: dict, rol: int | None = None) -> dict:
     d = dict(f)
     d["prioridadClinica"] = normaliza_prioridad_salida(d.get("prioridadClinica"))
     d["fechaDevolucion"] = srv.iso_utc(d.get("fechaDevolucion"))
+    d["fechaCita"] = srv.iso_local(d.get("fechaCita"))
     if rol == ROL_PACIENTE:
         for campo in ("motivoDevolucion", "observacionDevolucion", "fechaDevolucion"):
             d[campo] = None
@@ -1772,7 +1773,7 @@ def _cambia_estado(cursor, f: dict, accion: str, usuario, comentario=None, campo
 
 
 # ----------------------------------------------------------------------
-# Notificaciones por correo (HU15, HU23)
+# Notificaciones por correo (HU15, HU17, HU23)
 # ----------------------------------------------------------------------
 def _registra_correo(cursor, id_formulario, tipo, destinatario, asunto, cuerpo, estado, detalle):
     cursor.execute(
@@ -1795,6 +1796,12 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",), causal: s
     try:
         with conexion_db() as (conexion, cursor):
             f = _carga_formulario(cursor, id_formulario)
+            cita = None
+            if f.get("fechaCita") and f["idEstado"] == srv.E_AGENDADA:
+                valor = f["fechaCita"]
+                cita = valor if isinstance(valor, datetime) else datetime.fromisoformat(
+                    str(valor).replace(" ", "T")
+                )
 
             if "paciente" in destinos:
                 cursor.execute(
@@ -1806,7 +1813,7 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",), causal: s
                 asunto, cuerpo = srv.correo_paciente(
                     f["idEstado"], f["nombrePersona"] or "paciente", id_formulario,
                     f["nombreEspecialidad"], f["nombreHospital"],
-                    causal=f.get("causalCierre"),
+                    cita=cita, centro_cita=f.get("centroCita"), causal=f.get("causalCierre"),
                 )
                 destinatario = correos[0] if correos else ""
                 estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
@@ -1868,6 +1875,12 @@ class RevisionEspecialista(BaseModel):
 
 class CierreEntrada(BaseModel):
     causal: str | None = None
+
+
+class CitaEntrada(BaseModel):
+    fecha: date
+    hora: str
+    centro: str | None = Field(default=None, max_length=120)
 
 
 # ----------------------------------------------------------------------
@@ -2101,7 +2114,39 @@ def cierraInterconsulta(
 
 
 # ----------------------------------------------------------------------
-# Bitácora de correos de una interconsulta (trazabilidad de HU15/HU23)
+# HU17: asignación de hora médica
+# ----------------------------------------------------------------------
+@app.post("/formulario/{idFormulario}/cita")
+def asignaCita(
+    idFormulario: int,
+    datos: CitaEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO, ROL_ESPECIALISTA)),
+):
+    try:
+        momento = srv.combina_fecha_hora(datos.fecha, datos.hora)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if momento.date() < date.today():
+        raise HTTPException(status_code=400, detail="La fecha de la cita no puede ser anterior a hoy")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        centro = (datos.centro or "").strip() or f["nombreHospital"] or ""
+        _cambia_estado(
+            cursor, f, "agendar", usuario,
+            f"Hora asignada: {momento.strftime('%d-%m-%Y %H:%M')} en {centro}",
+            {"fechaCita": momento, "centroCita": centro[:120]},
+        )
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), int(usuario["rol"]))
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",))
+    return {"codigo": 1, "mensaje": "Hora médica asignada", "interconsulta": resultado}
+
+
+# ----------------------------------------------------------------------
+# Bitácora de correos de una interconsulta (trazabilidad de HU15/HU17/HU23)
 # ----------------------------------------------------------------------
 @app.get("/formulario/{idFormulario}/notificaciones")
 def obtieneNotificaciones(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):

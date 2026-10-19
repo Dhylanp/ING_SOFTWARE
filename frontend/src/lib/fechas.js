@@ -13,3 +13,12 @@ export const formatearFecha = (fecha) => {
   const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
   return `${dia}-${mes}-${anio}`;
 };
+
+// "2026-11-03T09:30" -> "03-11-2026 09:30" (hora de pared, sin zona)
+export const formatearCita = (iso) => {
+  if (!iso) return '';
+  return `${formatearFecha(iso)} ${String(iso).slice(11, 16)}`.trim();
+};
+
+// fecha de hoy en formato YYYY-MM-DD (hora local)
+export const hoyISO = () => new Date().toLocaleDateString('en-CA');

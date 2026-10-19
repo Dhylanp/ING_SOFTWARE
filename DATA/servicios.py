@@ -3,9 +3,9 @@ Lógica de negocio del flujo de interconsultas que NO depende de FastAPI ni de
 la base de datos, para poder probarla de forma aislada (ver DATA/tests).
 
 Contiene:
-  - Estados del flujo y transiciones permitidas (HU05B, HU09, HU23).
+  - Estados del flujo y transiciones permitidas (HU05B, HU09, HU17, HU23).
   - Causales de cierre (HU09).
-  - Plantillas de correo por etapa (HU15, HU23).
+  - Plantillas de correo por etapa (HU15, HU17, HU23).
   - Envío de correo por SMTP, con modo "simulado" si no hay SMTP configurado.
   - Utilidades de fecha.
 """
@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import smtplib
-from datetime import datetime
+from datetime import date, datetime, time
 from email.message import EmailMessage
 
 logger = logging.getLogger("api-lista-espera")
@@ -44,6 +44,7 @@ TRANSICIONES = {
     "aceptar": ({E_REGISTRADA, E_TRAMITADA}, E_LISTA_ESPERA),
     "devolver": ({E_REGISTRADA, E_TRAMITADA}, E_DEVUELTA),
     "reenviar": ({E_DEVUELTA}, E_TRAMITADA),
+    "agendar": ({E_LISTA_ESPERA}, E_AGENDADA),
     "cerrar": (
         {E_REGISTRADA, E_LISTA_ESPERA, E_DEVUELTA, E_TRAMITADA, E_AGENDADA},
         E_FINALIZADA,
@@ -88,6 +89,16 @@ def normaliza_causal(causal: str | None) -> str:
 # ----------------------------------------------------------------------
 # Fechas
 # ----------------------------------------------------------------------
+HORA_REGEX = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def combina_fecha_hora(fecha: date, hora: str) -> datetime:
+    if not HORA_REGEX.match(hora or ""):
+        raise ValueError("La hora debe tener formato HH:MM (24 horas)")
+    h, m = hora.split(":")
+    return datetime.combine(fecha, time(int(h), int(m)))
+
+
 def iso_utc(valor) -> str | None:
     """Serializa un DATETIME guardado en UTC (naive) como ISO-8601 con 'Z'."""
     if valor is None:
@@ -98,8 +109,17 @@ def iso_utc(valor) -> str | None:
     return texto if texto.endswith("Z") else texto + "Z"
 
 
+def iso_local(valor) -> str | None:
+    """Fecha/hora 'de pared' (la hora de la cita no se convierte de zona)."""
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        return valor.isoformat(timespec="minutes")
+    return str(valor).strip().replace(" ", "T")[:16]
+
+
 # ----------------------------------------------------------------------
-# Plantillas de correo (HU15 / HU23)
+# Plantillas de correo (HU15 / HU17 / HU23)
 # ----------------------------------------------------------------------
 # Por confidencialidad los correos NUNCA incluyen datos clínicos
 # (descripción, motivo de devolución, diagnóstico); solo el N° de caso y la etapa.
@@ -110,15 +130,21 @@ PIE = (
 )
 
 
+def _fmt_fecha(valor: datetime | None) -> str:
+    return valor.strftime("%d-%m-%Y") if valor else ""
+
+
 def correo_paciente(
     id_estado: int,
     nombre: str,
     id_formulario: int,
     especialidad: str | None = None,
     hospital: str | None = None,
+    cita: datetime | None = None,
+    centro_cita: str | None = None,
     causal: str | None = None,
 ) -> tuple[str, str]:
-    """Plantilla predefinida según la etapa del flujo (HU15)."""
+    """Plantilla predefinida según la etapa del flujo (HU15, HU17)."""
     esp = f" de {especialidad}" if especialidad else ""
     saludo = f"Estimado/a {nombre}:\n\n"
     caso = f"N° de interconsulta: #{id_formulario}"
@@ -151,6 +177,18 @@ def correo_paciente(
             + f"Su interconsulta{esp} requiere una corrección administrativa en su CESFAM. "
             "El equipo del CESFAM la gestionará y le informará cualquier novedad."
             + f"\n{caso}"
+        )
+    elif id_estado == E_AGENDADA:
+        fecha_txt = _fmt_fecha(cita)
+        hora_txt = cita.strftime("%H:%M") if cita else ""
+        centro = centro_cita or hospital or "el centro asignado"
+        asunto = f"Interconsulta #{id_formulario}: hora médica asignada"
+        cuerpo = (
+            saludo
+            + f"Se le asignó una hora médica{esp}.\n\n"
+            f"Fecha: {fecha_txt}\nHora: {hora_txt}\nCentro médico: {centro}\n\n"
+            "Recuerde presentarse con su cédula de identidad. Si no puede asistir, "
+            f"avise con anticipación a su CESFAM.\n{caso}"
         )
     elif id_estado == E_FINALIZADA:
         asunto = f"Interconsulta #{id_formulario}: finalizada"

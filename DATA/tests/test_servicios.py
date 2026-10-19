@@ -6,7 +6,7 @@ Ejecutar desde la raíz del repo:
 """
 import os
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from unittest import mock
 
 from DATA import servicios as srv
@@ -25,6 +25,11 @@ class TransicionesTest(unittest.TestCase):
         self.assertEqual(srv.valida_transicion("reenviar", srv.E_DEVUELTA), srv.E_TRAMITADA)
         with self.assertRaises(ValueError):
             srv.valida_transicion("reenviar", srv.E_REGISTRADA)
+
+    def test_agendar_solo_desde_lista_de_espera(self):
+        self.assertEqual(srv.valida_transicion("agendar", srv.E_LISTA_ESPERA), srv.E_AGENDADA)
+        with self.assertRaises(ValueError):
+            srv.valida_transicion("agendar", srv.E_REGISTRADA)
 
     def test_cerrar_cualquier_estado_salvo_finalizada(self):
         for origen in (1, 2, 3, 4, 5):
@@ -58,22 +63,51 @@ class CausalTest(unittest.TestCase):
 
 
 class FechasTest(unittest.TestCase):
+    def test_combina_fecha_hora(self):
+        self.assertEqual(
+            srv.combina_fecha_hora(date(2026, 11, 3), "09:30"), datetime(2026, 11, 3, 9, 30)
+        )
+
+    def test_hora_invalida(self):
+        for mala in ("25:00", "9:30", "abc", "", "12:60"):
+            with self.assertRaises(ValueError):
+                srv.combina_fecha_hora(date(2026, 11, 3), mala)
+
     def test_iso_utc(self):
         self.assertEqual(srv.iso_utc(datetime(2026, 10, 18, 14, 5, 7)), "2026-10-18T14:05:07Z")
         self.assertEqual(srv.iso_utc("2026-10-18 14:05:07.123"), "2026-10-18T14:05:07.123Z")
         self.assertIsNone(srv.iso_utc(None))
 
+    def test_iso_local(self):
+        self.assertEqual(srv.iso_local(datetime(2026, 11, 3, 9, 30)), "2026-11-03T09:30")
+        self.assertEqual(srv.iso_local("2026-11-03 09:30:00"), "2026-11-03T09:30")
+
 
 class PlantillasTest(unittest.TestCase):
     def test_cada_etapa_tiene_plantilla_propia(self):
-        etapas = (srv.E_REGISTRADA, srv.E_LISTA_ESPERA, srv.E_DEVUELTA, srv.E_TRAMITADA, srv.E_FINALIZADA)
         asuntos = set()
-        for estado in etapas:
-            asunto, cuerpo = srv.correo_paciente(estado, "Ana Pérez", 42, "Cardiología", "Hospital X")
+        for estado in range(1, 7):
+            asunto, cuerpo = srv.correo_paciente(estado, "Ana Pérez", 42, "Cardiología", "Hospital X",
+                                                 cita=datetime(2026, 11, 3, 9, 30))
             self.assertIn("#42", asunto)
             self.assertIn("Ana Pérez", cuerpo)
             asuntos.add(asunto)
-        self.assertEqual(len(asuntos), len(etapas), "cada etapa debe usar una plantilla distinta")
+        self.assertEqual(len(asuntos), 6, "cada etapa debe usar una plantilla distinta")
+
+    def test_correo_de_cita_incluye_fecha_hora_y_centro(self):
+        _, cuerpo = srv.correo_paciente(
+            srv.E_AGENDADA, "Ana", 7, "Oftalmología", "Hospital X",
+            cita=datetime(2026, 11, 3, 9, 30), centro_cita="Hospital Sótero del Río",
+        )
+        self.assertIn("03-11-2026", cuerpo)
+        self.assertIn("09:30", cuerpo)
+        self.assertIn("Hospital Sótero del Río", cuerpo)
+
+    def test_correo_de_cita_usa_hospital_si_no_hay_centro(self):
+        _, cuerpo = srv.correo_paciente(
+            srv.E_AGENDADA, "Ana", 7, None, "Hospital X", cita=datetime(2026, 11, 3, 9, 30)
+        )
+        self.assertIn("Hospital X", cuerpo)
 
     def test_no_se_filtran_datos_clinicos(self):
         # la plantilla de devolución al paciente no recibe ni muestra el motivo clínico

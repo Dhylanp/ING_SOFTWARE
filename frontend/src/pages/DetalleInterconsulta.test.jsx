@@ -15,7 +15,7 @@ const historial = [
 ]
 const detalle = { path: '/interconsultas/:id', ruta: '/interconsultas/9' }
 
-describe('DetalleInterconsulta (HU07 / HU09)', () => {
+describe('DetalleInterconsulta (HU07 / HU09 / HU17)', () => {
   beforeEach(() => localStorage.clear())
 
   test('muestra la línea de tiempo y las acciones según rol y estado', async () => {
@@ -28,6 +28,7 @@ describe('DetalleInterconsulta (HU07 / HU09)', () => {
     // Assert
     expect(await screen.findAllByTestId('evento-historial')).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Modificar datos administrativos' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Asignar hora médica' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cerrar interconsulta' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Corregir y reenviar' })).not.toBeInTheDocument()
   })
