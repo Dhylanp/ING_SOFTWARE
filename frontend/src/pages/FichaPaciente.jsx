@@ -280,6 +280,7 @@ export default function FichaPaciente() {
 
     const idPaciente = paciente?.idPersona;
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- reinicia la ficha al cambiar de paciente
         setContacto(null);
         setEditando(false);
         if (!idPaciente) return;

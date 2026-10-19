@@ -1,7 +1,6 @@
-import React, {
+import {
   createContext,
   useContext,
-  useEffect,
   useState
 } from 'react';
 
@@ -124,14 +123,14 @@ export const AuthProvider = ({ children }) => {
       console.error('Error al iniciar sesión:', error);
 
       if (error.response?.data?.detail) {
-        throw new Error(error.response.data.detail);
+        throw new Error(error.response.data.detail, { cause: error });
       }
 
       if (error.message) {
-        throw new Error(error.message);
+        throw new Error(error.message, { cause: error });
       }
 
-      throw new Error('No se pudo iniciar sesión');
+      throw new Error('No se pudo iniciar sesión', { cause: error });
     }
   };
 
@@ -172,28 +171,6 @@ export const AuthProvider = ({ children }) => {
       (a) => Number(a.idRol) === Number(idRol)
     );
   };
-
-  useEffect(() => {
-    const usuarioGuardado = localStorage.getItem('usuario');
-
-    if (!usuarioGuardado) {
-      setUsuario(null);
-      return;
-    }
-
-    try {
-      const datos = JSON.parse(usuarioGuardado);
-      setUsuario(datos);
-    } catch (error) {
-      console.error(
-        'Error al recuperar usuario:',
-        error
-      );
-
-      localStorage.removeItem('usuario');
-      setUsuario(null);
-    }
-  }, []);
 
   return (
     <AuthContext.Provider

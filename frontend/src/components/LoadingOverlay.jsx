@@ -1,4 +1,3 @@
-import React from 'react';
 
 const LoadingOverlay = ({ visible, texto = 'Cargando...' }) => {
   if (!visible) return null;

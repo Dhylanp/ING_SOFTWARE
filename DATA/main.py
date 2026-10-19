@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
 import mysql.connector
 from pydantic import BaseModel, Field, field_validator
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -10,6 +11,13 @@ import os
 import re
 import logging
 import jwt
+
+# La lógica pura (estados del flujo, fechas) vive en servicios.py.
+# Se admite ejecutar como paquete (uvicorn DATA.main:app) o desde la carpeta DATA.
+try:
+    from DATA import servicios as srv
+except ImportError:  # pragma: no cover
+    import servicios as srv
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api-lista-espera")
@@ -127,6 +135,18 @@ def requiere_rol(*roles_permitidos: int):
             raise HTTPException(status_code=403, detail="No tiene permisos para esta acción")
         return datos
     return verificador
+
+
+def usuario_opcional(authorization: str | None = Header(default=None)):
+    """Devuelve los datos del token si vienen y son válidos; si no, None."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    try:
+        return jwt.decode(
+            authorization[7:], _get_env("JWT_SECRET"), algorithms=[JWT_ALG]
+        )
+    except jwt.PyJWTError:
+        return None
 
 
 # ======================================================================
@@ -454,7 +474,10 @@ def obtieneRoles():
 
 
 @app.post("/formulario", status_code=201)
-def creaFormulario(formulario: formularioEntrada):
+def creaFormulario(
+    formulario: formularioEntrada,
+    usuario=Depends(usuario_opcional),
+):
     conexion = None
     cursor = None
     try:
@@ -480,12 +503,22 @@ def creaFormulario(formulario: formularioEntrada):
         valores = (
             formulario.descripcion, formulario.fechaInicio,
             formulario.idPersona, formulario.idCesfam,
-            formulario.idHospital, 1, prioridad_bd,
+            formulario.idHospital, srv.E_REGISTRADA, prioridad_bd,
             formulario.idEspecialidad
         )
         cursor.execute(query, valores)
+        id_formulario = cursor.lastrowid
+        # HU07: el alta es el primer evento de la línea de tiempo
+        registra_historial(
+            cursor, id_formulario, None, srv.E_REGISTRADA,
+            _id_usuario(usuario), "Interconsulta registrada"
+        )
         conexion.commit()
-        return {"codigo": 1, "mensaje": "Éxito para ingresar Formulario"}
+        return {
+            "codigo": 1,
+            "mensaje": "Éxito para ingresar Formulario",
+            "idFormulario": id_formulario,
+        }
 
     except HTTPException:
         raise
@@ -1023,6 +1056,7 @@ def filtraFormularios(
         conexion = get_conexion()
         query = """
             SELECT f.idFormulario, f.descripcion, f.fechaInicio,
+                   f.idEstado, f.idCesfam, f.idHospital, f.idPersona,
                    p.nombrePersona,
                    ce.nombreCesfam AS nombreCesfam,
                    h.nombreHospital,
@@ -1578,3 +1612,165 @@ def descargaDocumento(idDocumento: int):
             cursor.close()
         if conexion and conexion.is_connected():
             conexion.close()
+
+# ======================================================================
+# ======================================================================
+#  SPRINT 3: flujo de revisión, trazabilidad, alertas, notificaciones
+#  y sincronización offline (HU03, 05A, 05B, 07, 09, 15, 16, 17, 19, 21, 23)
+# ======================================================================
+# ======================================================================
+
+ROL_ADMINISTRATIVO = 1   # CESFAM: registra y corrige
+ROL_ESPECIALISTA = 2     # Hospital ("Externo"): revisa, acepta, devuelve
+ROL_PACIENTE = 3
+
+
+# ----------------------------------------------------------------------
+# Utilidades comunes
+# ----------------------------------------------------------------------
+@contextmanager
+def conexion_db():
+    """Conexión + cursor; hace rollback ante cualquier error y siempre cierra."""
+    conexion = get_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    try:
+        yield conexion, cursor
+    except HTTPException:
+        conexion.rollback()
+        raise
+    except Exception as e:
+        conexion.rollback()
+        logger.exception("Error de base de datos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        if conexion.is_connected():
+            conexion.close()
+
+
+def _ahora_utc() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _id_usuario(usuario) -> int | None:
+    try:
+        return int(usuario["sub"]) if usuario else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def registra_historial(cursor, id_formulario, estado_anterior, estado_nuevo,
+                       id_usuario, comentario=None):
+    cursor.execute(
+        """
+        INSERT INTO formulario_historial
+            (idFormulario, idEstadoAnterior, idEstadoNuevo, idPersona, fecha, comentario)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (id_formulario, estado_anterior, estado_nuevo, id_usuario,
+         _ahora_utc(), comentario[:500] if comentario else None),
+    )
+
+
+_SQL_FORMULARIO = """
+    SELECT f.idFormulario, f.descripcion, f.fechaInicio, f.idPersona, f.idCesfam,
+           f.idHospital, f.idEstado, f.prioridadClinica, f.idEspecialidad,
+           f.motivoDevolucion, f.observacionDevolucion, f.fechaDevolucion,
+           p.nombrePersona,
+           ce.nombreCesfam AS nombreCesfam,
+           h.nombreHospital,
+           e.nombreEstado,
+           esp.nombreEspecialidad
+    FROM formulario f
+    LEFT JOIN persona  p   ON f.idPersona  = p.idPersona
+    LEFT JOIN cesfam   ce  ON f.idCesfam   = ce.idCesfam
+    LEFT JOIN hospital h   ON f.idHospital = h.idHospital
+    LEFT JOIN estados  e   ON f.idEstado   = e.idEstado
+    LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
+"""
+
+
+def _carga_formulario(cursor, id_formulario: int) -> dict:
+    cursor.execute(_SQL_FORMULARIO + " WHERE f.idFormulario = %s", (id_formulario,))
+    f = cursor.fetchone()
+    if f is None:
+        raise HTTPException(status_code=404, detail="La interconsulta no existe")
+    return f
+
+
+def _presenta_formulario(f: dict, rol: int | None = None) -> dict:
+    """Normaliza tipos para JSON y oculta datos de gestión interna al paciente."""
+    d = dict(f)
+    d["prioridadClinica"] = normaliza_prioridad_salida(d.get("prioridadClinica"))
+    d["fechaDevolucion"] = srv.iso_utc(d.get("fechaDevolucion"))
+    if rol == ROL_PACIENTE:
+        for campo in ("motivoDevolucion", "observacionDevolucion", "fechaDevolucion"):
+            d[campo] = None
+    return d
+
+
+def _ids_centro(cursor, id_persona: int, rol: int, columna: str) -> set[int]:
+    assert columna in ("idHospital", "idCesfam")
+    cursor.execute(
+        f"SELECT {columna} AS centro FROM acceso "
+        "WHERE idPersona = %s AND idRol = %s AND activo = %s",
+        (id_persona, rol, "S"),
+    )
+    return {int(r["centro"]) for r in cursor.fetchall() if r["centro"]}
+
+
+def _verifica_alcance(cursor, usuario, f: dict):
+    """Cada rol solo opera sobre los casos de su propio establecimiento."""
+    rol = int(usuario["rol"])
+    persona = int(usuario["sub"])
+    if rol == ROL_ESPECIALISTA:
+        if int(f["idHospital"]) not in _ids_centro(cursor, persona, rol, "idHospital"):
+            raise HTTPException(status_code=403, detail="La interconsulta pertenece a otro hospital")
+    elif rol == ROL_ADMINISTRATIVO:
+        cesfams = _ids_centro(cursor, persona, rol, "idCesfam")
+        if cesfams and int(f["idCesfam"]) not in cesfams:
+            raise HTTPException(status_code=403, detail="La interconsulta pertenece a otro CESFAM")
+    elif rol == ROL_PACIENTE:
+        if int(f["idPersona"]) != persona:
+            raise HTTPException(status_code=403, detail="No tiene permisos para esta interconsulta")
+
+
+# ----------------------------------------------------------------------
+# Consulta de una interconsulta (soporte de HU02/05A/07)
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}")
+def obtieneFormulario(idFormulario: int, usuario=Depends(requiere_rol(1, 2, 3))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        return _presenta_formulario(f, int(usuario["rol"]))
+
+
+# ----------------------------------------------------------------------
+# HU07: historial de estados
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/historial")
+def obtieneHistorial(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        cursor.execute(
+            """
+            SELECT hi.idHistorial, hi.fecha, hi.comentario,
+                   hi.idEstadoAnterior, ea.nombreEstado AS estadoAnterior,
+                   hi.idEstadoNuevo,    en.nombreEstado AS estadoNuevo,
+                   hi.idPersona, p.nombrePersona AS usuario
+            FROM formulario_historial hi
+            LEFT JOIN estados  ea ON hi.idEstadoAnterior = ea.idEstado
+            LEFT JOIN estados  en ON hi.idEstadoNuevo    = en.idEstado
+            LEFT JOIN persona  p  ON hi.idPersona        = p.idPersona
+            WHERE hi.idFormulario = %s
+            ORDER BY hi.fecha ASC, hi.idHistorial ASC
+            """,
+            (idFormulario,),
+        )
+        eventos = cursor.fetchall()
+        for e in eventos:
+            e["fecha"] = srv.iso_utc(e["fecha"])
+            e["usuario"] = e["usuario"] or "Sistema"
+        return eventos

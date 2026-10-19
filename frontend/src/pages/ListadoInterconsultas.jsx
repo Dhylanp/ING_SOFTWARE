@@ -1,13 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import api from '../api/axios';
 import TablaInterconsultas from '../components/TablaInterconsultas';
-
-const estadosDisponibles = [
-  { id: 1, nombre: 'Registrada' },
-  { id: 2, nombre: 'En lista de espera' },
-  { id: 3, nombre: 'Devuelta' },
-  { id: 4, nombre: 'Enviada' },
-];
+import { ESTADOS as estadosDisponibles } from '../lib/estados';
 
 const filtrosIniciales = { estados: [], prioridad: 0, especialidad: 0, desde: '', hasta: '' };
 

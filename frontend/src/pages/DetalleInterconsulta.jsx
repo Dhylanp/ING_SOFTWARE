@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
-import Swal from 'sweetalert2';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import EstadoBadge from '../components/EstadoBadge';
+import LineaTiempo from '../components/LineaTiempo';
+import { avisos, mensajeDeError } from '../lib/avisos';
+import { normalizarPrioridad } from '../lib/estados';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -60,8 +63,18 @@ export default function DetalleInterconsulta() {
     const { id } = useParams();
     // datos que mandó el listado al hacer clic en "Ver"
     const location = useLocation();
-    const interconsulta = location.state?.interconsulta || null;
     const { tieneRol } = useAuth();
+
+    // la ficha se pide a la API; mientras llega se muestra la que mandó el listado
+    const [interconsulta, setInterconsulta] = useState(location.state?.interconsulta || null);
+    const [errorFicha, setErrorFicha] = useState('');
+
+    // HU07: historial de estados
+    const [historial, setHistorial] = useState([]);
+    const [cargandoHistorial, setCargandoHistorial] = useState(true);
+    const [errorHistorial, setErrorHistorial] = useState('');
+
+    const puedeGestionar = tieneRol(1) || tieneRol(2);
 
     const [documentos, setDocumentos] = useState([]);
     const [cargandoDocs, setCargandoDocs] = useState(true);
@@ -74,6 +87,43 @@ export default function DetalleInterconsulta() {
     const [subiendo, setSubiendo] = useState(false);
     // cambiar la key del input lo vacía (React lo vuelve a crear)
     const [inputKey, setInputKey] = useState(0);
+
+    // carga la ficha completa y el historial
+    useEffect(() => {
+        let activo = true;
+        api.get(`/formulario/${id}`)
+            .then((r) => {
+                if (activo) {
+                    setInterconsulta(r.data);
+                    setErrorFicha('');
+                }
+            })
+            .catch((err) => {
+                if (activo) setErrorFicha(mensajeDeError(err, 'No se pudo cargar la ficha de la interconsulta.'));
+            });
+
+        if (puedeGestionar) {
+            api.get(`/formulario/${id}/historial`)
+                .then((r) => {
+                    if (activo) {
+                        setHistorial(Array.isArray(r.data) ? r.data : []);
+                        setErrorHistorial('');
+                    }
+                })
+                .catch((err) => {
+                    if (activo) setErrorHistorial(mensajeDeError(err, 'No se pudo cargar el historial.'));
+                })
+                .finally(() => activo && setCargandoHistorial(false));
+        } else {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- sin permiso no hay historial que esperar
+            setCargandoHistorial(false);
+        }
+        return () => {
+            activo = false;
+        };
+        // puedeGestionar depende solo de la sesión
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
 
     // carga la lista de documentos de esta interconsulta
     useEffect(() => {
@@ -152,7 +202,7 @@ export default function DetalleInterconsulta() {
             setInputKey((k) => k + 1);
             setRecarga((r) => r + 1);
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'success',
                 title: 'Documento adjuntado',
                 text: respuesta.data.mensaje || 'El documento se adjuntó correctamente.',
@@ -160,7 +210,7 @@ export default function DetalleInterconsulta() {
         } catch (err) {
             const detalle = err.response?.data?.detail;
 
-            Swal.fire({
+            avisos.fire({
                 icon: 'error',
                 title: 'No se pudo adjuntar',
                 text: typeof detalle === 'string' ? detalle : 'Error al procesar la solicitud',
@@ -176,6 +226,8 @@ export default function DetalleInterconsulta() {
 
             <h2 style={{ marginTop: '16px' }}>Interconsulta #{id}</h2>
 
+            {errorFicha && !interconsulta && <p className="texto-error">{errorFicha}</p>}
+
             {interconsulta ? (
                 <div
                     style={{
@@ -183,6 +235,7 @@ export default function DetalleInterconsulta() {
                         border: '1px solid var(--border)',
                         borderRadius: '8px',
                         padding: '16px',
+                        textAlign: 'left',
                     }}
                 >
                     <p style={estiloDato}><strong>Paciente:</strong> {interconsulta.nombrePersona}</p>
@@ -190,17 +243,25 @@ export default function DetalleInterconsulta() {
                     <p style={estiloDato}><strong>Hospital de destino:</strong> {interconsulta.nombreHospital}</p>
                     <p style={estiloDato}><strong>Especialidad de destino:</strong> {interconsulta.nombreEspecialidad || 'No especificada'}</p>
                     <p style={estiloDato}><strong>Fecha de inicio:</strong> {interconsulta.fechaInicio}</p>
-                    <p style={estiloDato}><strong>Estado:</strong> {interconsulta.nombreEstado}</p>
+                    <p style={estiloDato}>
+                        <strong>Estado:</strong>{' '}
+                        <EstadoBadge idEstado={interconsulta.idEstado} nombre={interconsulta.nombreEstado} />
+                    </p>
                     <p style={estiloDato}>
                         <strong>Prioridad:</strong>{' '}
-                        {nombresPrioridad[interconsulta.prioridadClinica] || interconsulta.prioridadClinica}
+                        {nombresPrioridad[normalizarPrioridad(interconsulta.prioridadClinica)] || interconsulta.prioridadClinica}
                     </p>
                     <p style={estiloDato}><strong>Motivo:</strong> {interconsulta.descripcion}</p>
                 </div>
             ) : (
-                <p style={{ color: 'var(--text-muted)' }}>
-                    Para ver los datos de la interconsulta, vuelve al listado y entra con el botón "Ver".
-                </p>
+                !errorFicha && <p style={{ color: 'var(--text-muted)' }}>Cargando ficha...</p>
+            )}
+
+            {puedeGestionar && (
+                <>
+                    <h3 style={{ marginTop: '24px' }}>Historial de estados</h3>
+                    <LineaTiempo eventos={historial} cargando={cargandoHistorial} error={errorHistorial} />
+                </>
             )}
 
             <h3 style={{ marginTop: '24px' }}>Documentos adjuntos</h3>

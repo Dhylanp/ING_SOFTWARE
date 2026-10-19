@@ -2,22 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import api from '../api/axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // ajusta la ruta si es distinta
-
-const nombresEstado = {
-    1: 'Registrada',
-    2: 'En lista de espera',
-    3: 'Devuelta',
-    4: 'Enviada',
-};
-
-const normalizarPrioridad = (valor) => {
-    if (valor === null || valor === undefined) return null;
-    const v = String(valor).trim().toLowerCase();
-    if (v === 'alta' || v === '1') return 'alta';
-    if (v === 'media' || v === '2') return 'media';
-    if (v === 'baja' || v === '3') return 'baja';
-    return null;
-};
+import EstadoBadge from './EstadoBadge';
+import { normalizarPrioridad } from '../lib/estados';
 
 const nombresPrioridad = {
     alta: 'Alta',
@@ -57,7 +43,13 @@ export default function TablaInterconsultas({ filtros }) {
     const [error, setError] = useState(null);
 
     // 👇 Datos de sesión: si es paciente (rol 3), filtramos por su idPersona
-    const { idPersona, idRol } = useAuth();
+    const { idPersona, idRol, usuario } = useAuth();
+
+    // Un especialista (rol 2) solo ve los casos de su hospital; un administrativo (rol 1), los de su CESFAM
+    const centroUnico = (rol, campo) => {
+        const lista = (usuario?.accesos || []).filter((a) => Number(a.idRol) === rol && Number(a[campo]) > 0);
+        return lista.length === 1 ? Number(lista[0][campo]) : 0;
+    };
 
     const filtrosKey = useMemo(
         () => JSON.stringify({
@@ -94,6 +86,15 @@ export default function TablaInterconsultas({ filtros }) {
                 // 👇 Si es paciente (rol 3), restringir a sus propias interconsultas
                 if (Number(idRol) === 3 && idPersona) {
                     params.persona = idPersona;
+                }
+
+                if (Number(idRol) === 2) {
+                    const hospital = centroUnico(2, 'idHospital');
+                    if (hospital) params.hospital = hospital;
+                }
+                if (Number(idRol) === 1) {
+                    const cesfam = centroUnico(1, 'idCesfam');
+                    if (cesfam) params.cesfam = cesfam;
                 }
 
                 const respuesta = await api.get('/formulario/filtrar', { params });
@@ -145,7 +146,7 @@ export default function TablaInterconsultas({ filtros }) {
                             <th style={estiloEncabezado}>Especialidad</th>
                             <th style={estiloEncabezado}>Estado</th>
                             <th style={estiloEncabezado}>Prioridad</th>
-                            <th style={estiloEncabezado}>Detalle</th>
+                            <th style={estiloEncabezado}>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -160,7 +161,9 @@ export default function TablaInterconsultas({ filtros }) {
                                     <td style={estiloCelda}>{item.nombreCesfam}</td>
                                     <td style={estiloCelda}>{item.nombreHospital}</td>
                                     <td style={estiloCelda}>{item.nombreEspecialidad || 'No especificada'}</td>
-                                    <td style={estiloCelda}>{item.nombreEstado}</td>
+                                    <td style={estiloCelda}>
+                                        <EstadoBadge idEstado={item.idEstado} nombre={item.nombreEstado} />
+                                    </td>
                                     <td style={estiloCelda}>
                                         {prioridad ? (
                                             <span style={{ ...estiloEtiqueta, ...estilosPrioridad[prioridad] }}>

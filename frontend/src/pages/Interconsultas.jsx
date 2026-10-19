@@ -5,8 +5,8 @@ export default function Interconsultas() {
   const { usuario, tieneRol } = useAuth();
 
   /*
-  tieneRol(1) -> Admin
-  tieneRol(2) -> Usuario Externo
+  tieneRol(1) -> Admin (administrativo / médico del CESFAM)
+  tieneRol(2) -> Usuario Externo (especialista del hospital)
   tieneRol(3) -> Paciente
   tieneRol(4) -> Administrador de Roles 
   */
