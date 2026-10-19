@@ -13,6 +13,7 @@ from datetime import date, datetime
 from unittest import mock
 
 os.environ["JWT_SECRET"] = os.environ.get("JWT_SECRET") or "secreto-de-pruebas"  # vacío cuenta como ausente
+os.environ["SMTP_HOST"] = ""            # los correos quedan "simulados" en la bitácora
 
 from fastapi import HTTPException  # noqa: E402
 
@@ -40,6 +41,9 @@ CREATE TABLE formulario (
 CREATE TABLE formulario_historial (
     idHistorial INTEGER PRIMARY KEY AUTOINCREMENT, idFormulario INTEGER, idEstadoAnterior INTEGER,
     idEstadoNuevo INTEGER, idPersona INTEGER, fecha TEXT, comentario TEXT);
+CREATE TABLE notificacion_correo (
+    idNotificacion INTEGER PRIMARY KEY AUTOINCREMENT, idFormulario INTEGER, tipo TEXT,
+    destinatario TEXT, asunto TEXT, cuerpo TEXT, estadoEnvio TEXT, detalle TEXT, fecha TEXT);
 """
 
 # ids de usuarios de prueba
@@ -99,6 +103,13 @@ class CursorFalso:
         self.c.close()
 
 
+class BGInmediato:
+    """BackgroundTasks de pruebas: ejecuta la tarea en el acto."""
+
+    def add_task(self, fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+
 def usuario(id_persona, rol):
     return {"sub": str(id_persona), "rol": rol}
 
@@ -137,13 +148,19 @@ class BaseFlujo(unittest.TestCase):
         datos = dict(descripcion="Dolor torácico", fechaInicio=date.today(), idPersona=PACIENTE,
                      idCesfam=1, idHospital=1, idEspecialidad=1, prioridad="alta")
         datos.update(extra)
-        res = main.creaFormulario(main.formularioEntrada(**datos), self.admin)
+        res = main.creaFormulario(main.formularioEntrada(**datos), BGInmediato(), self.admin)
         return res["idFormulario"]
 
     def fila(self, id_formulario):
         c = CursorFalso(self.raw)
         c.execute("SELECT * FROM formulario WHERE idFormulario = %s", (id_formulario,))
         return c.fetchone()
+
+    def correos(self, id_formulario, tipo=None):
+        c = CursorFalso(self.raw)
+        c.execute("SELECT * FROM notificacion_correo WHERE idFormulario = %s ORDER BY idNotificacion",
+                  (id_formulario,))
+        return [f for f in c.fetchall() if tipo is None or f["tipo"] == tipo]
 
     def assertHTTP(self, codigo, fn, *args, **kwargs):
         with self.assertRaises(HTTPException) as ctx:
@@ -153,7 +170,7 @@ class BaseFlujo(unittest.TestCase):
 
 
 class RegistroTest(BaseFlujo):
-    def test_registro_crea_estado_registrada_e_historial(self):
+    def test_registro_crea_estado_registrada_historial_y_correo(self):
         id_f = self.crea()
         self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
         hist = main.obtieneHistorial(id_f, self.admin)
@@ -161,6 +178,10 @@ class RegistroTest(BaseFlujo):
         self.assertIsNone(hist[0]["estadoAnterior"])
         self.assertEqual(hist[0]["estadoNuevo"], "Registrada")
         self.assertEqual(hist[0]["usuario"], "Admin CESFAM A")
+        correos = self.correos(id_f, "paciente")
+        self.assertEqual(len(correos), 1)
+        self.assertEqual(correos[0]["destinatario"], "ana@correo.cl")
+        self.assertEqual(correos[0]["estadoEnvio"], "simulado")
 
 
 class PrivacidadTest(BaseFlujo):
@@ -174,6 +195,23 @@ class HistorialTest(BaseFlujo):  # HU07
         id_f = self.crea()
         self.assertHTTP(403, main.obtieneHistorial, id_f, usuario(ESP_2, 2))
         self.assertHTTP(404, main.obtieneHistorial, 999, self.admin)
+
+
+class NotificacionesTest(BaseFlujo):  # HU15
+    def test_sin_correo_registrado_queda_en_bitacora(self):
+        self.raw.execute("DELETE FROM persona_correos WHERE idPersona = ?", (PACIENTE,))
+        id_f = self.crea()
+        self.assertEqual(self.correos(id_f, "paciente")[0]["estadoEnvio"], "sin_destinatario")
+
+    def test_un_fallo_de_smtp_no_rompe_el_flujo(self):
+        with mock.patch.object(srv, "enviar_correo", return_value=("error", "SMTP caído")):
+            id_f = self.crea()
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
+        self.assertEqual(self.correos(id_f, "paciente")[0]["estadoEnvio"], "error")
+
+    def test_bitacora_consultable(self):
+        id_f = self.crea()
+        self.assertEqual(len(main.obtieneNotificaciones(id_f, self.admin)), 1)
 
 
 if __name__ == "__main__":

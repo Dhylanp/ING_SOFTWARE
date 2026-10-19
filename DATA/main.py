@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, BackgroundTasks
 import mysql.connector
 from pydantic import BaseModel, Field, field_validator
 from contextlib import contextmanager
@@ -12,7 +12,7 @@ import re
 import logging
 import jwt
 
-# La lógica pura (estados del flujo, fechas) vive en servicios.py.
+# La lógica pura (estados, plantillas de correo, SMTP) vive en servicios.py.
 # Se admite ejecutar como paquete (uvicorn DATA.main:app) o desde la carpeta DATA.
 try:
     from DATA import servicios as srv
@@ -476,6 +476,7 @@ def obtieneRoles():
 @app.post("/formulario", status_code=201)
 def creaFormulario(
     formulario: formularioEntrada,
+    background: BackgroundTasks,
     usuario=Depends(usuario_opcional),
 ):
     conexion = None
@@ -514,6 +515,8 @@ def creaFormulario(
             _id_usuario(usuario), "Interconsulta registrada"
         )
         conexion.commit()
+        # HU15: aviso al paciente (fuera de la transacción, nunca bloquea el registro)
+        background.add_task(notifica_cambio_estado, id_formulario, ("paciente",))
         return {
             "codigo": 1,
             "mensaje": "Éxito para ingresar Formulario",
@@ -1736,6 +1739,52 @@ def _verifica_alcance(cursor, usuario, f: dict):
 
 
 # ----------------------------------------------------------------------
+# Notificaciones por correo (HU15)
+# ----------------------------------------------------------------------
+def _registra_correo(cursor, id_formulario, tipo, destinatario, asunto, cuerpo, estado, detalle):
+    cursor.execute(
+        """
+        INSERT INTO notificacion_correo
+            (idFormulario, tipo, destinatario, asunto, cuerpo, estadoEnvio, detalle, fecha)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (id_formulario, tipo, (destinatario or "")[:100], asunto[:200], cuerpo,
+         estado, (detalle or "")[:300], _ahora_utc()),
+    )
+
+
+def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
+    """
+    Envía el correo que corresponde a la etapa actual del caso.
+    Se ejecuta DESPUÉS de confirmar la transacción (BackgroundTasks) y nunca
+    lanza: un fallo de correo queda registrado en `notificacion_correo`.
+    """
+    try:
+        with conexion_db() as (conexion, cursor):
+            f = _carga_formulario(cursor, id_formulario)
+
+            if "paciente" in destinos:
+                cursor.execute(
+                    "SELECT correos FROM persona_correos WHERE idPersona = %s",
+                    (f["idPersona"],),
+                )
+                correos = [str(r["correos"]).strip() for r in cursor.fetchall()]
+                correos = [c for c in correos if srv.CORREO_REGEX.match(c)]
+                asunto, cuerpo = srv.correo_paciente(
+                    f["idEstado"], f["nombrePersona"] or "paciente", id_formulario,
+                    f["nombreEspecialidad"], f["nombreHospital"],
+                )
+                destinatario = correos[0] if correos else ""
+                estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
+                _registra_correo(cursor, id_formulario, "paciente", destinatario,
+                                 asunto, cuerpo, estado, detalle)
+
+            conexion.commit()
+    except Exception:
+        logger.exception("No se pudo notificar el cambio de estado de #%s", id_formulario)
+
+
+# ----------------------------------------------------------------------
 # Consulta de una interconsulta (soporte de HU02/05A/07)
 # ----------------------------------------------------------------------
 @app.get("/formulario/{idFormulario}")
@@ -1774,3 +1823,26 @@ def obtieneHistorial(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
             e["fecha"] = srv.iso_utc(e["fecha"])
             e["usuario"] = e["usuario"] or "Sistema"
         return eventos
+
+
+# ----------------------------------------------------------------------
+# Bitácora de correos de una interconsulta (trazabilidad de HU15)
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/notificaciones")
+def obtieneNotificaciones(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        cursor.execute(
+            """
+            SELECT idNotificacion, tipo, destinatario, asunto, estadoEnvio, detalle, fecha
+            FROM notificacion_correo
+            WHERE idFormulario = %s
+            ORDER BY fecha ASC, idNotificacion ASC
+            """,
+            (idFormulario,),
+        )
+        filas = cursor.fetchall()
+        for fila in filas:
+            fila["fecha"] = srv.iso_utc(fila["fecha"])
+        return filas
