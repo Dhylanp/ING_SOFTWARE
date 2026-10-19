@@ -162,6 +162,14 @@ class BaseFlujo(unittest.TestCase):
                   (id_formulario,))
         return [f for f in c.fetchall() if tipo is None or f["tipo"] == tipo]
 
+    def revisa(self, id_f, accion, motivo=None, observaciones=None, user=None):
+        return main.revisaInterconsulta(
+            id_f, main.RevisionEspecialista(accion=accion, motivo=motivo, observaciones=observaciones),
+            BGInmediato(), user or self.esp)
+
+    def devuelve(self, id_f, motivo="Falta examen de laboratorio", observaciones="Adjuntar hemograma"):
+        return self.revisa(id_f, "devolver", motivo, observaciones)
+
     def assertHTTP(self, codigo, fn, *args, **kwargs):
         with self.assertRaises(HTTPException) as ctx:
             fn(*args, **kwargs)
@@ -184,13 +192,88 @@ class RegistroTest(BaseFlujo):
         self.assertEqual(correos[0]["estadoEnvio"], "simulado")
 
 
+class RevisionEspecialistaTest(BaseFlujo):  # HU23
+    def test_bandeja_muestra_solo_pendientes_de_su_hospital_ordenadas_por_prioridad(self):
+        baja = self.crea(prioridad="baja")
+        alta = self.crea(prioridad="alta")
+        self.crea(idHospital=2)  # otro hospital
+        bandeja = main.bandejaEspecialista(self.esp)
+        self.assertEqual([b["idFormulario"] for b in bandeja], [alta, baja])
+        self.assertTrue(all(b["idHospital"] == 1 for b in bandeja))
+        self.assertEqual(main.bandejaEspecialista(usuario(ESP_2, 2))[0]["idHospital"], 2)
+
+    def test_aceptar_cambia_estado_notifica_cesfam_y_paciente(self):
+        id_f = self.crea()
+        res = self.revisa(id_f, "aceptar")
+        self.assertEqual(res["idEstado"], srv.E_LISTA_ESPERA)
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_LISTA_ESPERA)
+        self.assertEqual(main.bandejaEspecialista(self.esp), [])  # sale de la bandeja
+        cesfam = self.correos(id_f, "cesfam")
+        self.assertEqual(len(cesfam), 1)
+        self.assertEqual(cesfam[0]["destinatario"], "cesfam.a@salud.cl")
+        self.assertIn("ACEPTADA", cesfam[0]["asunto"])
+        self.assertEqual(len(self.correos(id_f, "paciente")), 2)  # alta + aceptación
+
+    def test_devolver_exige_motivo(self):
+        id_f = self.crea()
+        for vacio in (None, "", "   "):
+            self.assertHTTP(400, self.revisa, id_f, "devolver", vacio)
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
+
+    def test_devolver_guarda_motivo(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        f = self.fila(id_f)
+        self.assertEqual(f["idEstado"], srv.E_DEVUELTA)
+        self.assertEqual(f["motivoDevolucion"], "Falta examen de laboratorio")
+        self.assertIn("DEVUELTA", self.correos(id_f, "cesfam")[0]["asunto"])
+
+    def test_correos_no_incluyen_el_motivo_clinico(self):
+        id_f = self.crea()
+        self.devuelve(id_f, motivo="Sospecha de infarto previo")
+        for c in self.correos(id_f):
+            self.assertNotIn("infarto", c["cuerpo"].lower())
+
+    def test_no_puede_revisar_otro_hospital(self):
+        id_f = self.crea()
+        self.assertHTTP(403, self.revisa, id_f, "aceptar", None, None, usuario(ESP_2, 2))
+
+    def test_no_se_puede_revisar_dos_veces(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        self.assertHTTP(409, self.revisa, id_f, "aceptar")
+        self.assertHTTP(409, self.revisa, id_f, "devolver", "otro motivo")
+
+    def test_accion_invalida_es_rechazada_por_el_modelo(self):
+        with self.assertRaises(Exception):
+            main.RevisionEspecialista(accion="borrar")
+
+
 class PrivacidadTest(BaseFlujo):
+    def test_el_paciente_no_ve_el_motivo_en_el_detalle(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        vista = main.obtieneFormulario(id_f, usuario(PACIENTE, 3))
+        self.assertIsNone(vista["motivoDevolucion"])
+        self.assertEqual(main.obtieneFormulario(id_f, self.admin)["motivoDevolucion"],
+                         "Falta examen de laboratorio")
+
     def test_paciente_no_ve_interconsultas_ajenas(self):
         id_f = self.crea()
         self.assertHTTP(403, main.obtieneFormulario, id_f, usuario(OTRO_PACIENTE, 3))
 
 
 class HistorialTest(BaseFlujo):  # HU07
+    def test_orden_cronologico_con_fecha_estados_y_responsable(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        hist = main.obtieneHistorial(id_f, self.esp)
+        self.assertEqual(len(hist), 2)
+        self.assertEqual((hist[1]["estadoAnterior"], hist[1]["estadoNuevo"]), ("Registrada", "En lista de espera"))
+        self.assertEqual(hist[1]["usuario"], "Dra. Especialista 1")
+        self.assertTrue(hist[1]["fecha"].endswith("Z"))
+        self.assertLessEqual(hist[0]["fecha"], hist[1]["fecha"])
+
     def test_alcance_por_establecimiento(self):
         id_f = self.crea()
         self.assertHTTP(403, main.obtieneHistorial, id_f, usuario(ESP_2, 2))
@@ -203,15 +286,33 @@ class NotificacionesTest(BaseFlujo):  # HU15
         id_f = self.crea()
         self.assertEqual(self.correos(id_f, "paciente")[0]["estadoEnvio"], "sin_destinatario")
 
+    def test_cesfam_sin_correo_usa_el_de_respaldo(self):
+        id_f = self.crea(idCesfam=2, idPersona=OTRO_PACIENTE)
+        with mock.patch.dict(os.environ, {"CESFAM_CORREO_DEFAULT": "respaldo@salud.cl"}):
+            main.notifica_cambio_estado(id_f, ("cesfam",))
+        self.assertEqual(self.correos(id_f, "cesfam")[0]["destinatario"], "respaldo@salud.cl")
+
     def test_un_fallo_de_smtp_no_rompe_el_flujo(self):
         with mock.patch.object(srv, "enviar_correo", return_value=("error", "SMTP caído")):
             id_f = self.crea()
-        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_REGISTRADA)
-        self.assertEqual(self.correos(id_f, "paciente")[0]["estadoEnvio"], "error")
+            self.revisa(id_f, "aceptar")
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_LISTA_ESPERA)
+        self.assertEqual(self.correos(id_f, "cesfam")[0]["estadoEnvio"], "error")
 
     def test_bitacora_consultable(self):
         id_f = self.crea()
         self.assertEqual(len(main.obtieneNotificaciones(id_f, self.admin)), 1)
+
+
+class ConcurrenciaTest(BaseFlujo):
+    def test_no_pisa_un_cambio_hecho_por_otra_persona(self):
+        id_f = self.crea()
+        cursor = CursorFalso(self.raw)
+        obsoleta = main._carga_formulario(cursor, id_f)      # lectura "vieja"
+        self.revisa(id_f, "aceptar")                          # otra persona acepta antes
+        # el estado de la lectura vieja (Registrada) permitiría devolver, pero ya no coincide en BD
+        self.assertHTTP(409, main._cambia_estado, cursor, obsoleta, "devolver", self.esp)
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_LISTA_ESPERA)
 
 
 if __name__ == "__main__":

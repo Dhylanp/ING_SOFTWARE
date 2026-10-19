@@ -12,6 +12,20 @@ from unittest import mock
 from DATA import servicios as srv
 
 
+class TransicionesTest(unittest.TestCase):
+    def test_aceptar_y_devolver_solo_desde_registrada_o_tramitada(self):
+        for origen in (srv.E_REGISTRADA, srv.E_TRAMITADA):
+            self.assertEqual(srv.valida_transicion("aceptar", origen), srv.E_LISTA_ESPERA)
+            self.assertEqual(srv.valida_transicion("devolver", origen), srv.E_DEVUELTA)
+        for origen in (srv.E_LISTA_ESPERA, srv.E_DEVUELTA, srv.E_AGENDADA, srv.E_FINALIZADA):
+            with self.assertRaises(ValueError):
+                srv.valida_transicion("aceptar", origen)
+
+    def test_accion_desconocida(self):
+        with self.assertRaises(ValueError):
+            srv.valida_transicion("borrar", 1)
+
+
 class FechasTest(unittest.TestCase):
     def test_iso_utc(self):
         self.assertEqual(srv.iso_utc(datetime(2026, 10, 18, 14, 5, 7)), "2026-10-18T14:05:07Z")
@@ -35,7 +49,16 @@ class PlantillasTest(unittest.TestCase):
         _, cuerpo = srv.correo_paciente(srv.E_DEVUELTA, "Ana", 7, "Cardiología", "Hospital X")
         self.assertNotIn("motivo", cuerpo.lower())
         self.assertNotIn("diagn", cuerpo.lower())
-        self.assertIn("confidencialidad", cuerpo)
+        _, cuerpo_cesfam = srv.correo_cesfam(srv.E_DEVUELTA, 7, "CESFAM Norte", "Hospital X")
+        self.assertIn("Ingrese al sistema", cuerpo_cesfam)
+        self.assertIn("confidencialidad", cuerpo_cesfam)
+
+    def test_correo_cesfam_aceptada_y_devuelta(self):
+        a, _ = srv.correo_cesfam(srv.E_LISTA_ESPERA, 9, "CESFAM Norte", "Hospital X")
+        d, _ = srv.correo_cesfam(srv.E_DEVUELTA, 9, "CESFAM Norte", "Hospital X")
+        self.assertIn("ACEPTADA", a)
+        self.assertIn("DEVUELTA", d)
+
 
 class EnvioCorreoTest(unittest.TestCase):
     def test_sin_destinatario(self):

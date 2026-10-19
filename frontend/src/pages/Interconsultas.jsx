@@ -29,6 +29,9 @@ export default function Interconsultas() {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {tieneRol(2) && (
+          <Link to="/especialista/bandeja">Bandeja de revisión (aceptar / devolver)</Link>
+        )}
         {!tieneRol(4) && (
           <Link to="/interconsultas/listado">Listado de interconsultas</Link>
         )}

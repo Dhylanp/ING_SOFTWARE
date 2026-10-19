@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, B
 import mysql.connector
 from pydantic import BaseModel, Field, field_validator
 from contextlib import contextmanager
+from typing import Literal
 from datetime import date, datetime, timedelta, timezone
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -1738,8 +1739,39 @@ def _verifica_alcance(cursor, usuario, f: dict):
             raise HTTPException(status_code=403, detail="No tiene permisos para esta interconsulta")
 
 
+def _cambia_estado(cursor, f: dict, accion: str, usuario, comentario=None, campos=None) -> int:
+    """
+    Aplica una transición validada. El UPDATE incluye el estado de origen en el WHERE:
+    si otra persona cambió el caso entre medio, no se pisa y se responde 409.
+    """
+    try:
+        nuevo = srv.valida_transicion(accion, f["idEstado"])
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    sets = ["idEstado = %s"]
+    valores: list = [nuevo]
+    for columna, valor in (campos or {}).items():  # columnas fijas, definidas en este archivo
+        sets.append(f"{columna} = %s")
+        valores.append(valor)
+    valores += [f["idFormulario"], f["idEstado"]]
+    cursor.execute(
+        "UPDATE formulario SET " + ", ".join(sets) +
+        " WHERE idFormulario = %s AND idEstado = %s",
+        tuple(valores),
+    )
+    if cursor.rowcount != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="La interconsulta cambió de estado mientras se procesaba. Actualice e intente nuevamente.",
+        )
+    registra_historial(cursor, f["idFormulario"], f["idEstado"], nuevo,
+                       _id_usuario(usuario), comentario)
+    return nuevo
+
+
 # ----------------------------------------------------------------------
-# Notificaciones por correo (HU15)
+# Notificaciones por correo (HU15, HU23)
 # ----------------------------------------------------------------------
 def _registra_correo(cursor, id_formulario, tipo, destinatario, asunto, cuerpo, estado, detalle):
     cursor.execute(
@@ -1779,9 +1811,34 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
                 _registra_correo(cursor, id_formulario, "paciente", destinatario,
                                  asunto, cuerpo, estado, detalle)
 
+            if "cesfam" in destinos:
+                try:
+                    cursor.execute(
+                        "SELECT correo FROM cesfam WHERE idCesfam = %s", (f["idCesfam"],)
+                    )
+                    fila = cursor.fetchone()
+                    destinatario = (fila or {}).get("correo") or ""
+                except Exception:
+                    destinatario = ""
+                destinatario = destinatario or os.getenv("CESFAM_CORREO_DEFAULT", "")
+                asunto, cuerpo = srv.correo_cesfam(
+                    f["idEstado"], id_formulario, f["nombreCesfam"], f["nombreHospital"]
+                )
+                estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
+                _registra_correo(cursor, id_formulario, "cesfam", destinatario,
+                                 asunto, cuerpo, estado, detalle)
             conexion.commit()
     except Exception:
         logger.exception("No se pudo notificar el cambio de estado de #%s", id_formulario)
+
+
+# ----------------------------------------------------------------------
+# Modelos del Sprint 3
+# ----------------------------------------------------------------------
+class RevisionEspecialista(BaseModel):
+    accion: Literal["aceptar", "devolver"]
+    motivo: str | None = Field(default=None, max_length=300)
+    observaciones: str | None = Field(default=None, max_length=500)
 
 
 # ----------------------------------------------------------------------
@@ -1793,6 +1850,66 @@ def obtieneFormulario(idFormulario: int, usuario=Depends(requiere_rol(1, 2, 3)))
         f = _carga_formulario(cursor, idFormulario)
         _verifica_alcance(cursor, usuario, f)
         return _presenta_formulario(f, int(usuario["rol"]))
+
+
+# ----------------------------------------------------------------------
+# HU23: bandeja del especialista y revisión
+# ----------------------------------------------------------------------
+_ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
+
+
+@app.get("/especialista/bandeja")
+def bandejaEspecialista(usuario=Depends(requiere_rol(ROL_ESPECIALISTA))):
+    with conexion_db() as (conexion, cursor):
+        hospitales = sorted(_ids_centro(cursor, int(usuario["sub"]), ROL_ESPECIALISTA, "idHospital"))
+        if not hospitales:
+            return []
+        marcadores = ", ".join(["%s"] * len(hospitales))
+        cursor.execute(
+            _SQL_FORMULARIO +
+            f" WHERE f.idEstado IN (%s, %s) AND f.idHospital IN ({marcadores})",
+            (srv.E_REGISTRADA, srv.E_TRAMITADA, *hospitales),
+        )
+        filas = [_presenta_formulario(f, ROL_ESPECIALISTA) for f in cursor.fetchall()]
+        # primero lo más urgente y, dentro de cada prioridad, lo más antiguo
+        filas.sort(key=lambda d: (_ORDEN_PRIORIDAD.get(d["prioridadClinica"], 3),
+                                  str(d["fechaInicio"]), d["idFormulario"]))
+        return filas
+
+
+@app.post("/formulario/{idFormulario}/revision")
+def revisaInterconsulta(
+    idFormulario: int,
+    datos: RevisionEspecialista,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ESPECIALISTA)),
+):
+    motivo = (datos.motivo or "").strip()
+    observaciones = (datos.observaciones or "").strip()
+    if datos.accion == "devolver" and not motivo:
+        raise HTTPException(status_code=400, detail="El motivo de devolución es obligatorio")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if datos.accion == "aceptar":
+            _cambia_estado(cursor, f, "aceptar", usuario, "Aceptada por el hospital")
+            mensaje = "Interconsulta aceptada y en lista de espera"
+        else:
+            _cambia_estado(
+                cursor, f, "devolver", usuario, f"Devuelta: {motivo}",
+                {
+                    "motivoDevolucion": motivo,
+                    "observacionDevolucion": observaciones or None,
+                    "fechaDevolucion": _ahora_utc(),
+                },
+            )
+            mensaje = "Interconsulta devuelta al CESFAM de origen"
+        conexion.commit()
+        estado_nuevo = _carga_formulario(cursor, idFormulario)["idEstado"]
+    # HU23 (CESFAM) + HU15 (paciente)
+    background.add_task(notifica_cambio_estado, idFormulario, ("cesfam", "paciente"))
+    return {"codigo": 1, "mensaje": mensaje, "idEstado": estado_nuevo}
 
 
 # ----------------------------------------------------------------------
@@ -1826,7 +1943,7 @@ def obtieneHistorial(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
 
 
 # ----------------------------------------------------------------------
-# Bitácora de correos de una interconsulta (trazabilidad de HU15)
+# Bitácora de correos de una interconsulta (trazabilidad de HU15/HU23)
 # ----------------------------------------------------------------------
 @app.get("/formulario/{idFormulario}/notificaciones")
 def obtieneNotificaciones(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):

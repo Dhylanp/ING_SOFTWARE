@@ -3,8 +3,8 @@ Lógica de negocio del flujo de interconsultas que NO depende de FastAPI ni de
 la base de datos, para poder probarla de forma aislada (ver DATA/tests).
 
 Contiene:
-  - Estados del flujo.
-  - Plantillas de correo por etapa (HU15).
+  - Estados del flujo y transiciones permitidas (HU23).
+  - Plantillas de correo por etapa (HU15, HU23).
   - Envío de correo por SMTP, con modo "simulado" si no hay SMTP configurado.
   - Utilidades de fecha.
 """
@@ -38,6 +38,25 @@ NOMBRES_ESTADO = {
     E_FINALIZADA: "Finalizada",
 }
 
+# acción -> (estados desde los que se puede ejecutar, estado resultante)
+TRANSICIONES = {
+    "aceptar": ({E_REGISTRADA, E_TRAMITADA}, E_LISTA_ESPERA),
+    "devolver": ({E_REGISTRADA, E_TRAMITADA}, E_DEVUELTA),
+}
+
+def valida_transicion(accion: str, estado_actual: int) -> int:
+    """Devuelve el estado destino o lanza ValueError con un mensaje legible."""
+    if accion not in TRANSICIONES:
+        raise ValueError(f"Acción desconocida: {accion}")
+    origenes, destino = TRANSICIONES[accion]
+    if int(estado_actual) not in origenes:
+        actual = NOMBRES_ESTADO.get(int(estado_actual), str(estado_actual))
+        raise ValueError(
+            f"No se puede ejecutar '{accion}' sobre una interconsulta en estado '{actual}'"
+        )
+    return destino
+
+
 # ----------------------------------------------------------------------
 # Fechas
 # ----------------------------------------------------------------------
@@ -52,7 +71,7 @@ def iso_utc(valor) -> str | None:
 
 
 # ----------------------------------------------------------------------
-# Plantillas de correo (HU15)
+# Plantillas de correo (HU15 / HU23)
 # ----------------------------------------------------------------------
 # Por confidencialidad los correos NUNCA incluyen datos clínicos
 # (descripción, motivo de devolución, diagnóstico); solo el N° de caso y la etapa.
@@ -108,6 +127,32 @@ def correo_paciente(
         asunto = f"Interconsulta #{id_formulario}: cambio de estado"
         cuerpo = saludo + f"Su interconsulta cambió de estado.\n{caso}"
 
+    return asunto, cuerpo + PIE
+
+
+def correo_cesfam(
+    id_estado: int,
+    id_formulario: int,
+    nombre_cesfam: str | None = None,
+    hospital: str | None = None,
+) -> tuple[str, str]:
+    """Aviso al CESFAM de origen cuando el especialista acepta o devuelve (HU23)."""
+    destino = f"Equipo de {nombre_cesfam}" if nombre_cesfam else "Equipo del CESFAM"
+    caso = f"Interconsulta #{id_formulario}"
+    origen = f" por {hospital}" if hospital else " por el hospital"
+    if id_estado == E_LISTA_ESPERA:
+        asunto = f"{caso}: ACEPTADA"
+        cuerpo = f"{destino}:\n\nLa {caso} fue aceptada{origen} y quedó en lista de espera."
+    elif id_estado == E_DEVUELTA:
+        asunto = f"{caso}: DEVUELTA"
+        cuerpo = (
+            f"{destino}:\n\nLa {caso} fue devuelta{origen}. "
+            "Ingrese al sistema para revisar el caso."
+        )
+    else:
+        nombre = NOMBRES_ESTADO.get(id_estado, str(id_estado))
+        asunto = f"{caso}: cambio de estado a {nombre}"
+        cuerpo = f"{destino}:\n\nLa {caso} cambió al estado «{nombre}»."
     return asunto, cuerpo + PIE
 
 
