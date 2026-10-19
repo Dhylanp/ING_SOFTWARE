@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
-// Service Worker: deja la app disponible sin conexión. Solo en la versión compilada (npm run build / preview) para
+// Service Worker: deja la app disponible sin conexión y sincroniza los registros
+// guardados offline. Solo en la versión compilada (npm run build / preview) para
 // no interferir con el servidor de desarrollo.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

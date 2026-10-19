@@ -1628,6 +1628,8 @@ ROL_ADMINISTRATIVO = 1   # CESFAM: registra, corrige, reenvía
 ROL_ESPECIALISTA = 2     # Hospital ("Externo"): revisa, acepta, devuelve
 ROL_PACIENTE = 3
 
+MAX_REGISTROS_SYNC = 100
+
 
 # ----------------------------------------------------------------------
 # Utilidades comunes
@@ -1882,6 +1884,21 @@ class CitaEntrada(BaseModel):
     fecha: date
     hora: str
     centro: str | None = Field(default=None, max_length=120)
+
+
+class RegistroOffline(BaseModel):
+    uuidLocal: str = Field(min_length=8, max_length=40)
+    descripcion: str = Field(min_length=1, max_length=200)
+    fechaInicio: date
+    idPersona: int
+    idCesfam: int
+    idHospital: int
+    idEspecialidad: int
+    prioridad: str = "media"
+
+
+class SincronizacionEntrada(BaseModel):
+    registros: list[RegistroOffline] = Field(min_length=1, max_length=MAX_REGISTROS_SYNC)
 
 
 # ----------------------------------------------------------------------
@@ -2198,6 +2215,85 @@ def marcaAlertasRevisadas(usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO))):
         marcadas = cursor.rowcount
         conexion.commit()
         return {"codigo": 1, "marcadas": marcadas}
+
+
+# ----------------------------------------------------------------------
+# HU21: sincronización de registros creados sin conexión
+# ----------------------------------------------------------------------
+def _inserta_registro_offline(conexion, cursor, r: RegistroOffline, usuario, cesfams: set[int]) -> dict:
+    cursor.execute("SELECT idFormulario FROM formulario WHERE uuidLocal = %s", (r.uuidLocal,))
+    existente = cursor.fetchone()
+    if existente:  # reintento de un envío que ya se había guardado: idempotente
+        return {"uuidLocal": r.uuidLocal, "estado": "sincronizado",
+                "idFormulario": existente["idFormulario"], "duplicado": True}
+
+    try:
+        prioridad = normaliza_prioridad_entrada(r.prioridad)
+    except ValueError as e:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": str(e)}
+    if not r.descripcion.strip():
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": "El motivo de la derivación es obligatorio"}
+    if cesfams and r.idCesfam not in cesfams:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": "El CESFAM no corresponde a su acceso"}
+    for tabla, columna, valor, nombre in (
+        ("persona", "idPersona", r.idPersona, "El paciente"),
+        ("especialidad", "idEspecialidad", r.idEspecialidad, "La especialidad"),
+        ("hospital", "idHospital", r.idHospital, "El hospital"),
+        ("cesfam", "idCesfam", r.idCesfam, "El CESFAM"),
+    ):
+        cursor.execute(f"SELECT {columna} FROM {tabla} WHERE {columna} = %s", (valor,))
+        if cursor.fetchone() is None:
+            return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": f"{nombre} no existe"}
+
+    fecha = min(r.fechaInicio, date.today())
+    try:
+        cursor.execute(
+            """
+            INSERT INTO formulario
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital,
+                 idEstado, prioridadClinica, idEspecialidad, uuidLocal)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (r.descripcion.strip(), fecha, r.idPersona, r.idCesfam, r.idHospital,
+             srv.E_REGISTRADA, prioridad, r.idEspecialidad, r.uuidLocal),
+        )
+    except Exception:
+        # carrera: otro proceso insertó el mismo uuid entre el SELECT y el INSERT
+        conexion.rollback()
+        cursor.execute("SELECT idFormulario FROM formulario WHERE uuidLocal = %s", (r.uuidLocal,))
+        existente = cursor.fetchone()
+        if existente:
+            return {"uuidLocal": r.uuidLocal, "estado": "sincronizado",
+                    "idFormulario": existente["idFormulario"], "duplicado": True}
+        raise
+    id_formulario = cursor.lastrowid
+    registra_historial(cursor, id_formulario, None, srv.E_REGISTRADA,
+                       _id_usuario(usuario), "Registrada sin conexión y sincronizada")
+    conexion.commit()
+    return {"uuidLocal": r.uuidLocal, "estado": "sincronizado", "idFormulario": id_formulario}
+
+
+@app.post("/sincronizar")
+def sincronizaRegistros(
+    datos: SincronizacionEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    resultados = []
+    with conexion_db() as (conexion, cursor):
+        cesfams = _ids_centro(cursor, int(usuario["sub"]), ROL_ADMINISTRATIVO, "idCesfam")
+        for registro in datos.registros:
+            try:
+                res = _inserta_registro_offline(conexion, cursor, registro, usuario, cesfams)
+            except Exception as e:  # un registro con problemas no debe bloquear a los demás
+                conexion.rollback()
+                logger.exception("Error sincronizando %s", registro.uuidLocal)
+                res = {"uuidLocal": registro.uuidLocal, "estado": "error", "detalle": str(e)[:200]}
+            resultados.append(res)
+            if res["estado"] == "sincronizado" and not res.get("duplicado"):
+                background.add_task(notifica_cambio_estado, res["idFormulario"], ("paciente",))
+    ok = sum(1 for r in resultados if r["estado"] == "sincronizado")
+    return {"codigo": 1, "sincronizados": ok, "fallidos": len(resultados) - ok, "resultados": resultados}
 
 
 # ----------------------------------------------------------------------

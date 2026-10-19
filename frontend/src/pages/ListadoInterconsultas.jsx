@@ -4,6 +4,7 @@ import PendientesLocales from '../components/PendientesLocales';
 import { useAuth } from '../context/AuthContext';
 import { ESTADOS as estadosDisponibles } from '../lib/estados';
 import { getConCache } from '../offline/catalogos';
+import { EVENTO_SYNC } from '../offline/sync';
 
 const filtrosIniciales = { estados: [], prioridad: 0, especialidad: 0, desde: '', hasta: '' };
 
@@ -11,6 +12,15 @@ export default function ListadoInterconsultas() {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [especialidades, setEspecialidades] = useState([]);
   const { tieneRol } = useAuth();
+  // sube cada vez que termina una sincronización, para volver a consultar la grilla (HU21)
+  const [refresco, setRefresco] = useState(0);
+
+  useEffect(() => {
+    const alSincronizar = () => setRefresco((n) => n + 1);
+    window.addEventListener(EVENTO_SYNC, alSincronizar);
+    return () => window.removeEventListener(EVENTO_SYNC, alSincronizar);
+  }, []);
+
   // carga la li  sta de especialidades para el selector de filtro
   useEffect(() => {
     const obtenerEspecialidades = async () => {
@@ -109,7 +119,7 @@ export default function ListadoInterconsultas() {
       )}
 
       <div style={{ marginTop: '20px' }}>
-        {!fechasInvalidas && <TablaInterconsultas filtros={filtrosMemo} />}
+        {!fechasInvalidas && <TablaInterconsultas filtros={filtrosMemo} refresco={refresco} />}
       </div>
     </div>
   );

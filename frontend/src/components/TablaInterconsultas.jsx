@@ -37,7 +37,7 @@ const estiloEncabezado = {
     color: 'var(--text-h)',
 };
 
-export default function TablaInterconsultas({ filtros }) {
+export default function TablaInterconsultas({ filtros, refresco = 0 }) {
     const [interconsultas, setInterconsultas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(null);
@@ -60,8 +60,9 @@ export default function TablaInterconsultas({ filtros }) {
             hasta: filtros.hasta,
             idPersona,
             idRol,
+            refresco,
         }),
-        [filtros, idPersona, idRol]
+        [filtros, idPersona, idRol, refresco]
     );
 
     useEffect(() => {

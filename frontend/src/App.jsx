@@ -15,6 +15,8 @@ import BandejaEspecialista from './pages/BandejaEspecialista';
 import InterconsultasDevueltas from './pages/InterconsultasDevueltas';
 import EditarInterconsulta from './pages/EditarInterconsulta';
 import CentroAlertas from './pages/CentroAlertas';
+import EstadoConexion from './components/EstadoConexion';
+import useSincronizacion from './hooks/useSincronizacion';
 
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
@@ -66,10 +68,15 @@ const RedirectDefault = () => {
 const AppContent = () => {
     const { isLoggedIn } = useAuth();
 
+    // HU21: deja la sesión lista para el Service Worker y sincroniza al volver la conexión
+    useSincronizacion();
+
     return (
         <BrowserRouter>
             {/* El widget se monta una sola vez si hay sesión */}
             {isLoggedIn && <UserWidget />}
+            {/* Aviso de "sin conexión" / registros pendientes de sincronizar */}
+            {isLoggedIn && <EstadoConexion />}
 
             <Routes>
                 <Route

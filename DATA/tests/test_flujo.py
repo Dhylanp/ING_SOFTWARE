@@ -495,6 +495,65 @@ class AlertasTest(BaseFlujo):  # HU16
         self.assertEqual(main.alertasDevoluciones(self.admin)["sinRevisar"], 1)
 
 
+class SincronizacionTest(BaseFlujo):  # HU21
+    def registro(self, uuid, **extra):
+        datos = dict(uuidLocal=uuid, descripcion="Registrada sin red", fechaInicio=date.today(),
+                     idPersona=PACIENTE, idCesfam=1, idHospital=1, idEspecialidad=1, prioridad="media")
+        datos.update(extra)
+        return main.RegistroOffline(**datos)
+
+    def sincroniza(self, *registros, user=None):
+        return main.sincronizaRegistros(main.SincronizacionEntrada(registros=list(registros)),
+                                        BGInmediato(), user or self.admin)
+
+    def test_inserta_en_lote_con_historial_y_correo(self):
+        res = self.sincroniza(self.registro("uuid-0001-aaaa"), self.registro("uuid-0002-bbbb", prioridad="alta"))
+        self.assertEqual((res["sincronizados"], res["fallidos"]), (2, 0))
+        ids = [r["idFormulario"] for r in res["resultados"]]
+        self.assertEqual(len(set(ids)), 2)
+        self.assertEqual(self.fila(ids[0])["idEstado"], srv.E_REGISTRADA)
+        self.assertEqual(self.fila(ids[1])["prioridadClinica"], "1")
+        self.assertIn("sincronizada", main.obtieneHistorial(ids[0], self.admin)[0]["comentario"])
+        self.assertEqual(len(self.correos(ids[0], "paciente")), 1)
+
+    def test_es_idempotente_ante_reintentos(self):
+        r = self.registro("uuid-0003-cccc")
+        primero = self.sincroniza(r)["resultados"][0]
+        segundo = self.sincroniza(r)["resultados"][0]
+        self.assertEqual(primero["idFormulario"], segundo["idFormulario"])
+        self.assertTrue(segundo["duplicado"])
+        c = CursorFalso(self.raw)
+        c.execute("SELECT COUNT(*) AS n FROM formulario")
+        self.assertEqual(c.fetchone()["n"], 1)
+        self.assertEqual(len(self.correos(primero["idFormulario"])), 1)  # no reenvía el correo
+
+    def test_un_registro_invalido_no_bloquea_a_los_demas(self):
+        res = self.sincroniza(
+            self.registro("uuid-0004-dddd"),
+            self.registro("uuid-0005-eeee", idEspecialidad=99),
+            self.registro("uuid-0006-ffff", prioridad="rarísima"),
+            self.registro("uuid-0007-gggg", idPersona=999),
+        )
+        estados = [r["estado"] for r in res["resultados"]]
+        self.assertEqual(estados, ["sincronizado", "error", "error", "error"])
+        self.assertEqual((res["sincronizados"], res["fallidos"]), (1, 3))
+        self.assertIn("especialidad", res["resultados"][1]["detalle"].lower())
+
+    def test_no_permite_registrar_en_otro_cesfam(self):
+        res = self.sincroniza(self.registro("uuid-0008-hhhh", idCesfam=2))
+        self.assertEqual(res["resultados"][0]["estado"], "error")
+
+    def test_fecha_futura_se_limita_a_hoy(self):
+        res = self.sincroniza(self.registro("uuid-0009-iiii", fechaInicio=date.today() + timedelta(days=30)))
+        self.assertEqual(self.fila(res["resultados"][0]["idFormulario"])["fechaInicio"], date.today().isoformat())
+
+    def test_modelo_rechaza_lotes_vacios_o_enormes(self):
+        with self.assertRaises(Exception):
+            main.SincronizacionEntrada(registros=[])
+        with self.assertRaises(Exception):
+            main.SincronizacionEntrada(registros=[self.registro(f"uuid-{i:08d}") for i in range(101)])
+
+
 class NotificacionesTest(BaseFlujo):  # HU15
     def test_una_plantilla_distinta_por_etapa(self):
         id_f = self.crea()

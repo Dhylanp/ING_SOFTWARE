@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import useRegistrosLocales from '../hooks/useRegistrosLocales';
+import useConexion from '../hooks/useConexion';
 import { eliminarSincronizados } from '../offline/almacen';
+import { solicitarSincronizacion } from '../offline/sync';
 import { formatearFecha } from '../lib/fechas';
 
 const estilos = {
@@ -13,13 +16,25 @@ const textos = {
   error: 'Error al sincronizar',
 };
 
-// HU19: registros guardados en el dispositivo con su distintivo de sincronización.
+// HU19/HU21: registros guardados en el dispositivo con su distintivo de sincronización.
 export default function PendientesLocales() {
   const { registros } = useRegistrosLocales();
+  const enLinea = useConexion();
+  const [enviando, setEnviando] = useState(false);
 
   if (registros.length === 0) return null;
 
+  const hayPorEnviar = registros.some((r) => r.estado !== 'sincronizado');
   const haySincronizados = registros.some((r) => r.estado === 'sincronizado');
+
+  const sincronizar = async () => {
+    setEnviando(true);
+    try {
+      await solicitarSincronizacion();
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   return (
     <section aria-label="Registros guardados en este dispositivo" style={{ margin: '0 0 24px', textAlign: 'left' }}>
@@ -51,6 +66,11 @@ export default function PendientesLocales() {
         ))}
       </ul>
       <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+        {hayPorEnviar && (
+          <button type="button" onClick={sincronizar} disabled={!enLinea || enviando}>
+            {enviando ? 'Sincronizando...' : 'Sincronizar ahora'}
+          </button>
+        )}
         {haySincronizados && (
           <button type="button" className="btn-secundario" onClick={() => eliminarSincronizados()}>
             Quitar sincronizados
