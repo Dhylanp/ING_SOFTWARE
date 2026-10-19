@@ -14,7 +14,7 @@ Contenido:
 6. [Inventario completo de pruebas](#6-inventario-completo-de-pruebas)
 7. [Cómo demostrar cada HU](#7-cómo-demostrar-cada-hu)
 8. [Tabla HU ↔ criterio ↔ evidencia](#8-tabla-hu--criterio--evidencia)
-9. [Base de datos y migración](#9-base-de-datos-y-migración)
+9. [Base de datos](#9-base-de-datos)
 10. [Pendientes / sin verificar](#10-pendientes--sin-verificar)
 
 ---
@@ -66,7 +66,6 @@ Variables de entorno: copiar `DATA/.env.example` y completar (nunca subir el `.e
 |----------|----------|
 | `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD` | Conexión a MySQL (Railway las inyecta solas) |
 | `JWT_SECRET` | Firma de tokens |
-| `AUTO_MIGRAR=1` | Al arrancar la API aplica la migración del Sprint 3 (idempotente). `0` la desactiva |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `SMTP_SSL` | Envío real de correos (HU15). **Si `SMTP_HOST` está vacío el envío se simula** y solo queda registrado en la bitácora |
 | `CESFAM_CORREO_DEFAULT` | Correo de respaldo si el CESFAM no tiene `cesfam.correo` |
 
@@ -133,7 +132,7 @@ git commit -m "chore(backend): dependencias de pruebas y variables de entorno de
 | Archivo | Qué es / para qué |
 |---------|-------------------|
 | `requirements-dev.txt` | Incluye `requirements.txt` + `pytest` y `httpx` (cliente de pruebas de FastAPI) |
-| `DATA/.env.example` | Plantilla de todas las variables (MySQL, JWT, SMTP, `AUTO_MIGRAR`, correo respaldo CESFAM). Sin secretos |
+| `DATA/.env.example` | Plantilla de todas las variables (MySQL, JWT, SMTP, correo respaldo CESFAM). Sin secretos |
 | `DATA/__init__.py` | Convierte `DATA` en paquete para poder hacer `from DATA.main import app` en pruebas y `uvicorn DATA.main:app` |
 
 Verificación: `pip install -r requirements-dev.txt` termina sin errores.
@@ -157,11 +156,11 @@ Verificación: `python -m pytest DATA/tests/test_servicios.py -q` → **22 passe
 
 ---
 
-### Commit 3 — API del Sprint 3 + migración — HU03, 05A, 05B, 07, 09, 15, 16, 17, 21, 23
+### Commit 3 — API del Sprint 3 — HU03, 05A, 05B, 07, 09, 15, 16, 17, 21, 23
 
 ```bash
-trae DATA/main.py DATA/migraciones/001_sprint3.sql DATA/tests/test_flujo.py
-git add DATA/main.py DATA/migraciones/001_sprint3.sql DATA/tests/test_flujo.py
+trae DATA/main.py DATA/tests/test_flujo.py
+git add DATA/main.py DATA/tests/test_flujo.py
 git commit -m "feat(api): endpoints Sprint 3 (revisión, devolución, reenvío, historial, cita, cierre, alertas, sincronización, notificaciones)"
 ```
 
@@ -172,8 +171,7 @@ git commit -m "feat(api): endpoints Sprint 3 (revisión, devolución, reenvío, 
 
 | Archivo | Qué es / para qué |
 |---------|-------------------|
-| `DATA/main.py` | Todos los endpoints nuevos (sección 4) + migración automática `asegura_esquema` + `POST /formulario` ahora guarda historial y notifica |
-| `DATA/migraciones/001_sprint3.sql` | La misma migración en SQL, para aplicarla a mano si se desactiva `AUTO_MIGRAR` |
+| `DATA/main.py` | Todos los endpoints nuevos (sección 4) + `POST /formulario` ahora guarda historial y notifica |
 | `DATA/tests/test_flujo.py` | 50 pruebas de los endpoints con una base de datos falsa en memoria (no necesita MySQL) |
 
 Verificación: `python -m pytest DATA/tests -q` → **72 passed**.
@@ -592,8 +590,8 @@ docker run -d --name s3demo -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=railwa
 docker exec -i s3demo mysql -uroot -proot --default-character-set=utf8mb4 railway < docs/sprint3/esquema_base_prueba.sql
 
 export MYSQLHOST=127.0.0.1 MYSQLPORT=3399 MYSQLDATABASE=railway MYSQLUSER=root MYSQLPASSWORD=root \
-       JWT_SECRET=secreto-demo-local-123456 AUTO_MIGRAR=1
-uvicorn DATA.main:app --port 8000 &          # al arrancar aplica la migración (renombra "Enviada" → "Tramitada", etc.)
+       JWT_SECRET=secreto-demo-local-123456
+uvicorn DATA.main:app --port 8000 &
 python docs/sprint3/prueba_flujo_mysql.py http://127.0.0.1:8000
 
 docker exec s3demo mysql -uroot -proot railway -e "SELECT * FROM estados; SELECT * FROM formulario_historial; SELECT tipo,destinatario,estadoEnvio FROM notificacion_correo;"
@@ -690,10 +688,10 @@ y el correo al paciente en `notificacion_correo`. La captura queda en `offline_f
 
 ---
 
-## 9. Base de datos y migración
+## 9. Base de datos
 
-La API aplica `asegura_esquema()` al arrancar si `AUTO_MIGRAR=1` y existe `MYSQLHOST`. Es **idempotente**: se puede
-ejecutar muchas veces sin duplicar nada. Equivale a `DATA/migraciones/001_sprint3.sql`.
+La base de Railway ya tiene aplicados los cambios del Sprint 3, así que la API **no migra nada al arrancar**.
+Para una base local, `docs/sprint3/esquema_base_prueba.sql` crea la estructura completa.
 
 | Cambio | Para qué |
 |--------|----------|
@@ -719,14 +717,8 @@ ejecutar muchas veces sin duplicar nada. Equivale a `DATA/migraciones/001_sprint
 | `formulario.prioridadClinica` | `INT` 1–10 con `CHECK`, default 1 | texto | la API traduce `alta/media/baja` ↔ `1/2/3`; compatible |
 | `formulario.descripcion` | minúscula | `Descripcion` | MySQL no distingue mayúsculas en columnas; sin efecto |
 | `persona_contactos.contactos` | `INT` | — | sin efecto |
-| Claves foráneas | `formulario.idEstado → estados` y otras | — | la migración crea los estados 5 y 6 antes de usarlos; compatible |
+| Claves foráneas | `formulario.idEstado → estados` y otras | — | los estados 5 y 6 ya existen en la base; compatible |
 
-Lo que la migración agregará en producción: 9 columnas en `formulario` + `cesfam.correo` + índice único `uq_formulario_uuid`,
-las tablas `formulario_historial` y `notificacion_correo`, renombrar estado 4 "Enviada" → "Tramitada" e insertar 5 y 6.
-Ninguna choca con lo existente. Datos actuales en producción: 8 interconsultas, 4 personas, 49 CESFAM, 40 hospitales, 10 especialidades.
-
-Para aplicar la migración a mano (si `AUTO_MIGRAR=0`): ejecutar `DATA/migraciones/001_sprint3.sql` en la base.
-Recomendado: **respaldo de la base de Railway antes del primer despliegue**.
 
 ---
 
@@ -735,6 +727,5 @@ Recomendado: **respaldo de la base de Railway antes del primer despliegue**.
 - **SMTP real**: no se probó con un servidor de correo real (solo simulado y con SMTP mockeado). Configurar `SMTP_*` en Railway y probar un envío.
 - **Service Worker en otros navegadores**: probado en Chrome real (sección 7.4); no probado en Firefox/Safari ni en móvil.
 - **Rol del "encargado de lista de espera"**: se asumió que es el rol 2 (especialista) quien agenda (HU17) y cierra (HU09). Si es otro rol, ajustar `requiere_rol` en esos endpoints.
-- **Migración en Railway**: probada en MySQL 9.7 local con la estructura idéntica a producción, no sobre la base real. Hacer respaldo antes.
 - **Tamaño del bundle**: `npm run build` avisa que un chunk pesa más de 500 kB (solo advertencia; se puede dividir con `import()` más adelante).
 - **Correo del CESFAM**: completar `cesfam.correo` o `CESFAM_CORREO_DEFAULT`; si no, esas notificaciones quedan como `sin_destinatario`.

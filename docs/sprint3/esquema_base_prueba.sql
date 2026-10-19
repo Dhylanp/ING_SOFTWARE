@@ -1,7 +1,7 @@
--- Esquema base ANTERIOR al Sprint 3 + datos mínimos de prueba.
+-- Esquema completo (incluye los cambios del Sprint 3) + datos mínimos de prueba.
 -- La estructura es copia exacta (SHOW CREATE TABLE) de la base de Railway del equipo, leída el 2026-10-19
 -- (MySQL 9.7): prioridadClinica es INT 1-10, persona tiene fechaNac e idComuna, y hay claves foráneas.
--- Solo para probar en local que la migración automática (asegura_esquema) funciona.
+-- Solo para levantar una base local de prueba con la misma estructura que Railway.
 -- NO ejecutar en producción: la base de Railway ya tiene estas tablas.
 -- Usuarios de prueba: RUT 11111111 (Admin), 22222222 (Externo), 12345678 (Paciente); clave "Clave1234".
 SET NAMES utf8mb4;
@@ -26,6 +26,7 @@ CREATE TABLE `cesfam` (
   `nombreCesfam` varchar(150) NOT NULL,
   `calle` varchar(50) NOT NULL,
   `idComuna` int NOT NULL,
+  `correo` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`idCesfam`),
   KEY `idComuna` (`idComuna`),
   CONSTRAINT `cesfam_ibfk_1` FOREIGN KEY (`idComuna`) REFERENCES `comuna` (`idComuna`)
@@ -115,7 +116,17 @@ CREATE TABLE `formulario` (
   `idEstado` int NOT NULL,
   `prioridadClinica` int DEFAULT '1',
   `idEspecialidad` int DEFAULT NULL,
+  `motivoDevolucion` varchar(300) DEFAULT NULL,
+  `observacionDevolucion` varchar(500) DEFAULT NULL,
+  `fechaDevolucion` datetime DEFAULT NULL,
+  `alertaRevisada` tinyint(1) NOT NULL DEFAULT '1',
+  `causalCierre` varchar(30) DEFAULT NULL,
+  `fechaCierre` date DEFAULT NULL,
+  `fechaCita` datetime DEFAULT NULL,
+  `centroCita` varchar(120) DEFAULT NULL,
+  `uuidLocal` varchar(40) DEFAULT NULL,
   PRIMARY KEY (`idFormulario`),
+  UNIQUE KEY `uq_formulario_uuid` (`uuidLocal`),
   KEY `id_Persona` (`idPersona`),
   KEY `idCesfam` (`idCesfam`),
   KEY `idHospital` (`idHospital`),
@@ -150,8 +161,34 @@ CREATE TABLE `formulario_observacion` (
   CONSTRAINT `formulario_observacion_ibfk_1` FOREIGN KEY (`idFormulario`) REFERENCES `formulario` (`idFormulario`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- Catálogos iguales a producción. Estado 4 con el nombre antiguo, para comprobar que la migración lo renombra a "Tramitada".
-INSERT INTO estados VALUES (1,'Registrada'),(2,'En lista de espera'),(3,'Devuelta'),(4,'Enviada');
+CREATE TABLE `formulario_historial` (
+  `idHistorial` int NOT NULL AUTO_INCREMENT,
+  `idFormulario` int NOT NULL,
+  `idEstadoAnterior` int DEFAULT NULL,
+  `idEstadoNuevo` int NOT NULL,
+  `idPersona` int DEFAULT NULL,
+  `fecha` datetime NOT NULL,
+  `comentario` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`idHistorial`),
+  KEY `idx_hist_formulario` (`idFormulario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE `notificacion_correo` (
+  `idNotificacion` int NOT NULL AUTO_INCREMENT,
+  `idFormulario` int NOT NULL,
+  `tipo` varchar(20) NOT NULL,
+  `destinatario` varchar(100) NOT NULL,
+  `asunto` varchar(200) NOT NULL,
+  `cuerpo` text NOT NULL,
+  `estadoEnvio` varchar(20) NOT NULL,
+  `detalle` varchar(300) DEFAULT NULL,
+  `fecha` datetime NOT NULL,
+  PRIMARY KEY (`idNotificacion`),
+  KEY `idx_notif_formulario` (`idFormulario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Catálogos iguales a producción.
+INSERT INTO estados VALUES (1,'Registrada'),(2,'En lista de espera'),(3,'Devuelta'),(4,'Tramitada'),(5,'Agendada'),(6,'Finalizada');
 INSERT INTO rol VALUES
   (1,'Admin','Administra Cesfam y envia Formularios'),
   (2,'Externo','Administra Hospital y reenvia Formularios'),
