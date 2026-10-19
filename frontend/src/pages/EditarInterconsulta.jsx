@@ -8,6 +8,7 @@ import {
   PRIORIDADES, normalizarPrioridad,
 } from '../lib/estados';
 import { formatearFecha } from '../lib/fechas';
+import { getConCache } from '../offline/catalogos';
 
 const etiqueta = { display: 'block', fontWeight: 'bold', marginBottom: '5px' };
 const bloque = { marginBottom: '15px' };
@@ -35,8 +36,8 @@ export default function EditarInterconsulta({ modo = 'editar' }) {
       try {
         const [det, esp, hos] = await Promise.all([
           api.get(`/formulario/${id}`),
-          api.get('/especialidad'),
-          api.get('/hospital/0'),
+          getConCache('/especialidad'),
+          getConCache('/hospital/0'),
         ]);
         if (!activo) return;
         const f = det.data;

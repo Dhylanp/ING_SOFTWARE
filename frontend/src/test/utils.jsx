@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { vi } from 'vitest'
 import { AuthProvider } from '../context/AuthContext'
 import api from '../api/axios'
+import { DB_NOMBRE } from '../offline/almacen'
 
 // Muestra la ruta actual: sirve para comprobar a dónde navegó una pantalla.
 function Ubicacion() {
@@ -81,3 +82,10 @@ export const errorHttp = (status, detail) => {
 
 // Error de red: la petición salió pero no hubo respuesta
 export const errorDeRed = () => new Error('Network Error')
+
+export function borrarAlmacenLocal() {
+  return new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NOMBRE)
+    req.onsuccess = req.onerror = req.onblocked = () => resolve()
+  })
+}

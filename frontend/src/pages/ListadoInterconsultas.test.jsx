@@ -2,12 +2,13 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ESTADOS } from '../lib/estados'
-import { mockApi, renderPagina } from '../test/utils'
+import { borrarAlmacenLocal, mockApi, renderPagina } from '../test/utils'
 import ListadoInterconsultas from './ListadoInterconsultas'
 
 describe('ListadoInterconsultas (HU07 estados)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear()
+    await borrarAlmacenLocal()
   })
 
   test('sin interconsultas muestra "Sin resultados"', async () => {

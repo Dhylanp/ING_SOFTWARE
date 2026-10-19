@@ -1,19 +1,21 @@
 import { useState, useMemo, useEffect } from 'react';
-import api from '../api/axios';
 import TablaInterconsultas from '../components/TablaInterconsultas';
+import PendientesLocales from '../components/PendientesLocales';
+import { useAuth } from '../context/AuthContext';
 import { ESTADOS as estadosDisponibles } from '../lib/estados';
+import { getConCache } from '../offline/catalogos';
 
 const filtrosIniciales = { estados: [], prioridad: 0, especialidad: 0, desde: '', hasta: '' };
 
 export default function ListadoInterconsultas() {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [especialidades, setEspecialidades] = useState([]);
-
+  const { tieneRol } = useAuth();
   // carga la li  sta de especialidades para el selector de filtro
   useEffect(() => {
     const obtenerEspecialidades = async () => {
       try {
-        const respuesta = await api.get('/especialidad');
+        const respuesta = await getConCache('/especialidad');
         setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
       } catch (err) {
         // si falla, el selector queda solo con "Todas las especialidades"
@@ -53,6 +55,8 @@ export default function ListadoInterconsultas() {
 
   return (
     <div style={{ maxWidth: '900px', margin: '40px auto', padding: '20px' }}>
+
+      {tieneRol(1) && <PendientesLocales />}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
         <select name="prioridad" value={filtros.prioridad} onChange={handleChange}>

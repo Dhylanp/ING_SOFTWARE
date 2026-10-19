@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { avisos } from '../lib/avisos';
 import { useAuth } from '../context/AuthContext';
+import { guardarPendiente } from '../offline/almacen';
+import { getConCache } from '../offline/catalogos';
+import { esErrorDeRed, hayConexion, publicarSesionParaSW } from '../offline/sync';
 
 const formularioVacio = {
     rut: '',
@@ -61,7 +64,7 @@ export default function RegistrarInterconsulta() {
     useEffect(() => {
         const obtenerPersonas = async () => {
             try {
-                const respuesta = await api.get('/persona');
+                const respuesta = await getConCache('/persona');
                 setPersonas(Array.isArray(respuesta.data) ? respuesta.data : []);
             } catch (err) {
                 console.error('[RegistrarInterconsulta] Error personas:', err);
@@ -84,7 +87,7 @@ export default function RegistrarInterconsulta() {
                 const url = '/hospital/0';
                 console.log('[RegistrarInterconsulta] GET', url, 'baseURL:', api.defaults.baseURL);
 
-                const respuesta = await api.get(url);
+                const respuesta = await getConCache(url);
 
                 const lista = Array.isArray(respuesta.data) ? respuesta.data : [];
                 setHospitales(lista);
@@ -123,7 +126,7 @@ export default function RegistrarInterconsulta() {
         const obtenerEspecialidades = async () => {
             setCargandoEspecialidades(true);
             try {
-                const respuesta = await api.get('/especialidad');
+                const respuesta = await getConCache('/especialidad');
                 setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
             } catch (err) {
                 console.error('[RegistrarInterconsulta] Error especialidades:', err);
@@ -207,6 +210,33 @@ export default function RegistrarInterconsulta() {
             prioridad: formData.prioridad,
         };
 
+        // HU19: sin internet el registro se guarda en el dispositivo y se envía después
+        const guardarSinConexion = async () => {
+            await guardarPendiente({ payload, nombrePaciente: paciente.nombrePersona });
+            await publicarSesionParaSW().catch(() => {});
+            setFormData(formularioVacio);
+            setErrores({});
+            avisos.fire({
+                icon: 'info',
+                title: 'Guardado sin conexión',
+                text: 'No hay conexión a internet. La interconsulta se guardó en este dispositivo (modo offline) y se enviará automáticamente cuando vuelva la conexión.'
+            });
+        };
+
+        if (!hayConexion()) {
+            try {
+                await guardarSinConexion();
+            } catch (errLocal) {
+                console.error('[RegistrarInterconsulta] No se pudo guardar localmente:', errLocal);
+                avisos.fire({
+                    icon: 'error',
+                    title: 'No se pudo guardar',
+                    text: 'No hay conexión y tampoco fue posible guardar el registro en este dispositivo.'
+                });
+            }
+            return;
+        }
+
         try {
             const respuesta = await api.post('/formulario', payload);
 
@@ -219,6 +249,15 @@ export default function RegistrarInterconsulta() {
                 text: respuesta.data.mensaje || 'La interconsulta fue registrada correctamente.'
             });
         } catch (err) {
+            // la conexión se cayó justo al enviar: también se guarda localmente
+            if (esErrorDeRed(err)) {
+                try {
+                    await guardarSinConexion();
+                    return;
+                } catch (errLocal) {
+                    console.error('[RegistrarInterconsulta] No se pudo guardar localmente:', errLocal);
+                }
+            }
             const detalle = err.response?.data?.detail;
 
             avisos.fire({

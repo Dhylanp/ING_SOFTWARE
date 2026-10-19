@@ -5,6 +5,8 @@ import {
 } from 'react';
 
 import api from '../api/axios';
+import { borrarMeta } from '../offline/almacen';
+import { limpiarCatalogos } from '../offline/catalogos';
 
 const AuthContext = createContext(null);
 
@@ -150,6 +152,11 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('usuario');
     localStorage.removeItem('token');
+    // al cerrar sesión se borran las listas en caché y el token que usa el Service Worker
+    limpiarCatalogos();
+    if (typeof indexedDB !== 'undefined') {
+      borrarMeta('token').catch(() => {});
+    }
 
     setUsuario(null);
   };

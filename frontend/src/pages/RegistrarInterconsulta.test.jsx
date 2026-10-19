@@ -2,7 +2,8 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { avisos } from '../lib/avisos'
-import { mockApi, renderPagina } from '../test/utils'
+import { listarRegistros } from '../offline/almacen'
+import { borrarAlmacenLocal, errorDeRed, mockApi, renderPagina } from '../test/utils'
 import RegistrarInterconsulta from './RegistrarInterconsulta'
 
 const catalogos = {
@@ -20,9 +21,10 @@ async function llenarFormulario(user, container) {
   await user.type(container.querySelector('textarea[name=descripcion]'), 'Dolor torácico')
 }
 
-describe('RegistrarInterconsulta', () => {
-  beforeEach(() => {
+describe('RegistrarInterconsulta (HU19)', () => {
+  beforeEach(async () => {
     localStorage.clear()
+    await borrarAlmacenLocal()
   })
 
   test('sin campos obligatorios no envía y avisa "Campos incompletos"', async () => {
@@ -42,6 +44,42 @@ describe('RegistrarInterconsulta', () => {
     expect(api.post).not.toHaveBeenCalled()
   })
 
+  test('sin conexión guarda en el dispositivo y avisa "Guardado sin conexión"', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const api = mockApi(catalogos)
+    const fire = vi.spyOn(avisos, 'fire').mockResolvedValue({})
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const { container } = renderPagina(<RegistrarInterconsulta />)
+    await llenarFormulario(user, container)
+
+    // Act
+    await user.click(screen.getByRole('button', { name: 'Guardar y emitir interconsulta' }))
+
+    // Assert
+    await vi.waitFor(() => expect(fire).toHaveBeenCalledWith(expect.objectContaining({ title: 'Guardado sin conexión' })))
+    const registros = await listarRegistros()
+    expect(registros).toHaveLength(1)
+    expect(registros[0]).toMatchObject({ estado: 'pendiente', nombrePaciente: 'Ana Pérez', payload: { idPersona: 7, idCesfam: 1, idHospital: 1, idEspecialidad: 1 } })
+    expect(api.post).not.toHaveBeenCalledWith('/formulario', expect.anything())
+  })
+
+  test('si la red se cae al enviar también lo guarda localmente', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    mockApi({ ...catalogos, 'POST /formulario': errorDeRed() })
+    const fire = vi.spyOn(avisos, 'fire').mockResolvedValue({})
+    const { container } = renderPagina(<RegistrarInterconsulta />)
+    await llenarFormulario(user, container)
+
+    // Act
+    await user.click(screen.getByRole('button', { name: 'Guardar y emitir interconsulta' }))
+
+    // Assert
+    await vi.waitFor(() => expect(fire).toHaveBeenCalledWith(expect.objectContaining({ title: 'Guardado sin conexión' })))
+    expect(await listarRegistros()).toHaveLength(1)
+  })
+
   test('con conexión registra en el servidor', async () => {
     // Arrange
     const user = userEvent.setup()
@@ -56,5 +94,6 @@ describe('RegistrarInterconsulta', () => {
     // Assert
     await vi.waitFor(() => expect(fire).toHaveBeenCalledWith(expect.objectContaining({ title: 'Interconsulta registrada' })))
     expect(api.post).toHaveBeenCalledWith('/formulario', expect.objectContaining({ idPersona: 7, descripcion: 'Dolor torácico', prioridad: expect.any(String) }))
+    expect(await listarRegistros()).toHaveLength(0)
   })
 })
