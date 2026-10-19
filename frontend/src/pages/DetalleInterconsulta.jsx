@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import EstadoBadge from '../components/EstadoBadge';
 import LineaTiempo from '../components/LineaTiempo';
 import { avisos, mensajeDeError } from '../lib/avisos';
-import { normalizarPrioridad } from '../lib/estados';
+import { E_DEVUELTA, normalizarPrioridad } from '../lib/estados';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -252,6 +252,17 @@ export default function DetalleInterconsulta() {
                         {nombresPrioridad[normalizarPrioridad(interconsulta.prioridadClinica)] || interconsulta.prioridadClinica}
                     </p>
                     <p style={estiloDato}><strong>Motivo:</strong> {interconsulta.descripcion}</p>
+                    {Number(interconsulta.idEstado) === E_DEVUELTA && interconsulta.motivoDevolucion && (
+                        <div
+                            data-testid="bloque-devolucion"
+                            style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)' }}
+                        >
+                            <p><strong>Motivo de devolución:</strong> {interconsulta.motivoDevolucion}</p>
+                            {interconsulta.observacionDevolucion && (
+                                <p><strong>Observaciones:</strong> {interconsulta.observacionDevolucion}</p>
+                            )}
+                        </div>
+                    )}
                 </div>
             ) : (
                 !errorFicha && <p style={{ color: 'var(--text-muted)' }}>Cargando ficha...</p>

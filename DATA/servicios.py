@@ -147,7 +147,8 @@ def correo_cesfam(
         asunto = f"{caso}: DEVUELTA"
         cuerpo = (
             f"{destino}:\n\nLa {caso} fue devuelta{origen}. "
-            "Ingrese al sistema para revisar el caso."
+            "Ingrese al sistema, sección «Interconsultas devueltas», para ver el motivo, "
+            "corregirla y reenviarla."
         )
     else:
         nombre = NOMBRES_ESTADO.get(id_estado, str(id_estado))

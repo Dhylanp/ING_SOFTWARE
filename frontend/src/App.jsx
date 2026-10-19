@@ -12,6 +12,7 @@ import FichaPaciente from './pages/FichaPaciente';
 import EditarPerfil from './pages/EditarPerfil';
 import DetalleInterconsulta from './pages/DetalleInterconsulta';
 import BandejaEspecialista from './pages/BandejaEspecialista';
+import InterconsultasDevueltas from './pages/InterconsultasDevueltas';
 
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
@@ -101,6 +102,15 @@ const AppContent = () => {
                     <Route
                         path="/interconsultas/listado"
                         element={<ListadoInterconsultas />}
+                    />
+
+                    <Route
+                        path="/interconsultas/devueltas"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <InterconsultasDevueltas />
+                            </RutaPorRol>
+                        }
                     />
 
                     <Route

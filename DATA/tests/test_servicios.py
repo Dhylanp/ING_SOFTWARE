@@ -50,7 +50,7 @@ class PlantillasTest(unittest.TestCase):
         self.assertNotIn("motivo", cuerpo.lower())
         self.assertNotIn("diagn", cuerpo.lower())
         _, cuerpo_cesfam = srv.correo_cesfam(srv.E_DEVUELTA, 7, "CESFAM Norte", "Hospital X")
-        self.assertIn("Ingrese al sistema", cuerpo_cesfam)
+        self.assertIn("Interconsultas devueltas", cuerpo_cesfam)
         self.assertIn("confidencialidad", cuerpo_cesfam)
 
     def test_correo_cesfam_aceptada_y_devuelta(self):

@@ -249,7 +249,25 @@ class RevisionEspecialistaTest(BaseFlujo):  # HU23
             main.RevisionEspecialista(accion="borrar")
 
 
-class PrivacidadTest(BaseFlujo):
+class DevolucionTest(BaseFlujo):  # HU05A
+    def test_consulta_motivo_y_observaciones(self):
+        id_f = self.crea()
+        self.devuelve(id_f, "Falta examen", "Adjuntar hemograma")
+        d = main.obtieneDevolucion(id_f, self.admin)
+        self.assertEqual(d["motivo"], "Falta examen")
+        self.assertEqual(d["observaciones"], "Adjuntar hemograma")
+        self.assertEqual(d["hospital"], "Hospital Uno")
+        self.assertTrue(d["fecha"].endswith("Z"))
+
+    def test_solo_aplica_a_interconsultas_devueltas(self):
+        id_f = self.crea()
+        self.assertHTTP(409, main.obtieneDevolucion, id_f, self.admin)
+
+    def test_otro_cesfam_no_puede_consultarla(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        self.assertHTTP(403, main.obtieneDevolucion, id_f, usuario(ADMIN_B, 1))
+
     def test_el_paciente_no_ve_el_motivo_en_el_detalle(self):
         id_f = self.crea()
         self.devuelve(id_f)

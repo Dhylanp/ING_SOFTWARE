@@ -35,6 +35,9 @@ export default function Interconsultas() {
         {!tieneRol(4) && (
           <Link to="/interconsultas/listado">Listado de interconsultas</Link>
         )}
+        {tieneRol(1) && (
+          <Link to="/interconsultas/devueltas">Interconsultas devueltas</Link>
+        )}
         {!tieneRol(4) && (
           <Link to="/EditarPerfil">Revisar mis datos personales</Link>
         )}

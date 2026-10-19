@@ -1853,6 +1853,26 @@ def obtieneFormulario(idFormulario: int, usuario=Depends(requiere_rol(1, 2, 3)))
 
 
 # ----------------------------------------------------------------------
+# HU05A: motivo de devolución
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/devolucion")
+def obtieneDevolucion(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] != srv.E_DEVUELTA:
+            raise HTTPException(status_code=409, detail="La interconsulta no está en estado Devuelta")
+        return {
+            "idFormulario": f["idFormulario"],
+            "estado": f["nombreEstado"],
+            "motivo": f["motivoDevolucion"],
+            "observaciones": f["observacionDevolucion"],
+            "fecha": srv.iso_utc(f["fechaDevolucion"]),
+            "hospital": f["nombreHospital"],
+        }
+
+
+# ----------------------------------------------------------------------
 # HU23: bandeja del especialista y revisión
 # ----------------------------------------------------------------------
 _ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
