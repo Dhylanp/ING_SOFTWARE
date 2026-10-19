@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, BackgroundTasks
 import mysql.connector
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from contextlib import contextmanager
 from typing import Literal
 from datetime import date, datetime, timedelta, timezone
@@ -1835,6 +1835,29 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
 # ----------------------------------------------------------------------
 # Modelos del Sprint 3
 # ----------------------------------------------------------------------
+class EdicionAdministrativa(BaseModel):
+    """
+    HU03: SOLO estos campos son editables. Cualquier otro
+    (paciente, CESFAM, fecha, estado...) se rechaza con 422.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    descripcion: str | None = Field(default=None, max_length=200)
+    prioridad: str | None = None
+    idEspecialidad: int | None = Field(default=None, gt=0)
+    idHospital: int | None = Field(default=None, gt=0)
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_no_vacia(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("El motivo de la derivación no puede quedar vacío")
+        return v
+
+
 class RevisionEspecialista(BaseModel):
     accion: Literal["aceptar", "devolver"]
     motivo: str | None = Field(default=None, max_length=300)
@@ -1870,6 +1893,65 @@ def obtieneDevolucion(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
             "fecha": srv.iso_utc(f["fechaDevolucion"]),
             "hospital": f["nombreHospital"],
         }
+
+
+# ----------------------------------------------------------------------
+# HU03: edición administrativa
+# ----------------------------------------------------------------------
+def _aplica_correcciones(cursor, f: dict, datos: EdicionAdministrativa) -> dict:
+    """Valida y devuelve {columna: valor} con lo que realmente cambia."""
+    cambios: dict = {}
+    if datos.descripcion is not None:
+        cambios["descripcion"] = datos.descripcion
+    if datos.prioridad is not None:
+        try:
+            cambios["prioridadClinica"] = normaliza_prioridad_entrada(datos.prioridad)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if datos.idEspecialidad is not None:
+        cursor.execute("SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
+                       (datos.idEspecialidad,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="La especialidad no existe")
+        cambios["idEspecialidad"] = datos.idEspecialidad
+    if datos.idHospital is not None:
+        cursor.execute("SELECT idHospital FROM hospital WHERE idHospital = %s",
+                       (datos.idHospital,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="El hospital no existe")
+        cambios["idHospital"] = datos.idHospital
+    return cambios
+
+
+@app.patch("/formulario/{idFormulario}/administrativo")
+def modificaDatosAdministrativos(
+    idFormulario: int,
+    datos: EdicionAdministrativa,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    if all(v is None for v in (datos.descripcion, datos.prioridad,
+                               datos.idEspecialidad, datos.idHospital)):
+        raise HTTPException(status_code=400, detail="Debes enviar al menos un campo para actualizar")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] == srv.E_FINALIZADA:
+            raise HTTPException(status_code=409, detail="Una interconsulta finalizada no se puede modificar")
+        if (datos.idHospital is not None or datos.idEspecialidad is not None) and \
+                f["idEstado"] not in (srv.E_REGISTRADA, srv.E_DEVUELTA, srv.E_TRAMITADA):
+            raise HTTPException(
+                status_code=409,
+                detail="El hospital y la especialidad solo se pueden cambiar antes de que el hospital acepte el caso",
+            )
+        cambios = _aplica_correcciones(cursor, f, datos)
+        sets = ", ".join(f"{c} = %s" for c in cambios)
+        cursor.execute(
+            f"UPDATE formulario SET {sets} WHERE idFormulario = %s",
+            tuple(cambios.values()) + (idFormulario,),
+        )
+        conexion.commit()
+        return _presenta_formulario(_carga_formulario(cursor, idFormulario), ROL_ADMINISTRATIVO)
 
 
 # ----------------------------------------------------------------------

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import EstadoBadge from '../components/EstadoBadge';
 import LineaTiempo from '../components/LineaTiempo';
 import { avisos, mensajeDeError } from '../lib/avisos';
-import { E_DEVUELTA, normalizarPrioridad } from '../lib/estados';
+import { E_DEVUELTA, E_FINALIZADA, normalizarPrioridad } from '../lib/estados';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -263,6 +263,13 @@ export default function DetalleInterconsulta() {
                             )}
                         </div>
                     )}
+
+                    {/* acciones según rol y estado */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '14px' }}>
+                        {tieneRol(1) && Number(interconsulta.idEstado) !== E_FINALIZADA && (
+                            <Link to={`/interconsultas/${id}/editar`}>Modificar datos administrativos</Link>
+                        )}
+                    </div>
                 </div>
             ) : (
                 !errorFicha && <p style={{ color: 'var(--text-muted)' }}>Cargando ficha...</p>

@@ -281,6 +281,64 @@ class DevolucionTest(BaseFlujo):  # HU05A
         self.assertHTTP(403, main.obtieneFormulario, id_f, usuario(OTRO_PACIENTE, 3))
 
 
+class EdicionAdministrativaTest(BaseFlujo):  # HU03
+    def test_solo_campos_administrativos(self):
+        for prohibido in ("idPersona", "idCesfam", "fechaInicio", "idEstado"):
+            with self.assertRaises(Exception, msg=prohibido):
+                main.EdicionAdministrativa(**{prohibido: 1})
+
+    def test_actualiza_y_devuelve_datos_nuevos(self):
+        id_f = self.crea()
+        res = main.modificaDatosAdministrativos(
+            id_f, main.EdicionAdministrativa(descripcion="  Control anual  ", prioridad="baja",
+                                             idEspecialidad=2), self.admin)
+        self.assertEqual(res["descripcion"], "Control anual")
+        self.assertEqual(res["prioridadClinica"], "baja")
+        self.assertEqual(res["nombreEspecialidad"], "Oftalmología")
+        f = self.fila(id_f)
+        self.assertEqual((f["descripcion"], f["prioridadClinica"], f["idEspecialidad"]), ("Control anual", "3", 2))
+        self.assertEqual(f["idPersona"], PACIENTE)       # intactos
+        self.assertEqual(f["idEstado"], srv.E_REGISTRADA)
+
+    def test_sin_campos_es_400(self):
+        id_f = self.crea()
+        self.assertHTTP(400, main.modificaDatosAdministrativos, id_f, main.EdicionAdministrativa(), self.admin)
+
+    def test_validaciones(self):
+        id_f = self.crea()
+        with self.assertRaises(Exception):
+            main.EdicionAdministrativa(descripcion="   ")
+        self.assertHTTP(400, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(prioridad="urgentisima"), self.admin)
+        self.assertHTTP(422, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(idEspecialidad=99), self.admin)
+        self.assertHTTP(422, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(idHospital=99), self.admin)
+
+    def test_no_edita_finalizadas_ni_otro_cesfam(self):
+        id_f = self.crea()
+        self.assertHTTP(403, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(descripcion="x"), usuario(ADMIN_B, 1))
+        self.raw.execute("UPDATE formulario SET idEstado = ? WHERE idFormulario = ?", (srv.E_FINALIZADA, id_f))
+        self.assertHTTP(409, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(descripcion="x"), self.admin)
+
+    def test_hospital_no_cambia_una_vez_aceptada(self):
+        id_f = self.crea()
+        self.revisa(id_f, "aceptar")
+        self.assertHTTP(409, main.modificaDatosAdministrativos, id_f,
+                        main.EdicionAdministrativa(idHospital=2), self.admin)
+        # pero sí puede ajustar la prioridad
+        main.modificaDatosAdministrativos(id_f, main.EdicionAdministrativa(prioridad="media"), self.admin)
+
+    def test_especialista_no_puede_editar_via_endpoint_administrativo(self):
+        # la restricción de rol vive en la dependencia declarada (requiere_rol(1))
+        verificador = main.modificaDatosAdministrativos.__defaults__[-1].dependency
+        token_especialista = "Bearer " + main.crea_token(ESP_1, 2)
+        self.assertHTTP(403, verificador, token_especialista)
+        self.assertEqual(verificador("Bearer " + main.crea_token(ADMIN_A, 1))["rol"], 1)
+
+
 class HistorialTest(BaseFlujo):  # HU07
     def test_orden_cronologico_con_fecha_estados_y_responsable(self):
         id_f = self.crea()

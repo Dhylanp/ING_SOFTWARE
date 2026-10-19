@@ -3,7 +3,7 @@ import api from '../api/axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // ajusta la ruta si es distinta
 import EstadoBadge from './EstadoBadge';
-import { normalizarPrioridad } from '../lib/estados';
+import { E_FINALIZADA, normalizarPrioridad } from '../lib/estados';
 
 const nombresPrioridad = {
     alta: 'Alta',
@@ -182,6 +182,12 @@ export default function TablaInterconsultas({ filtros }) {
                                         >
                                             Ver
                                         </Link>
+                                        {Number(idRol) === 1 && Number(item.idEstado) !== E_FINALIZADA && (
+                                            <>
+                                                {' · '}
+                                                <Link to={`/interconsultas/${item.idFormulario}/editar`}>Editar</Link>
+                                            </>
+                                        )}
                                     </td>
                                 </tr>
                             );
