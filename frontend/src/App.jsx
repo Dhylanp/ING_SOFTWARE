@@ -11,6 +11,12 @@ import UserWidget from './components/UserWidget';
 import FichaPaciente from './pages/FichaPaciente';
 import EditarPerfil from './pages/EditarPerfil';
 import DetalleInterconsulta from './pages/DetalleInterconsulta';
+import BandejaEspecialista from './pages/BandejaEspecialista';
+import InterconsultasDevueltas from './pages/InterconsultasDevueltas';
+import EditarInterconsulta from './pages/EditarInterconsulta';
+import CentroAlertas from './pages/CentroAlertas';
+import EstadoConexion from './components/EstadoConexion';
+import useSincronizacion from './hooks/useSincronizacion';
 
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
@@ -62,10 +68,15 @@ const RedirectDefault = () => {
 const AppContent = () => {
     const { isLoggedIn } = useAuth();
 
+    // HU21: deja la sesión lista para el Service Worker y sincroniza al volver la conexión
+    useSincronizacion();
+
     return (
         <BrowserRouter>
             {/* El widget se monta una sola vez si hay sesión */}
             {isLoggedIn && <UserWidget />}
+            {/* Aviso de "sin conexión" / registros pendientes de sincronizar */}
+            {isLoggedIn && <EstadoConexion />}
 
             <Routes>
                 <Route
@@ -100,6 +111,51 @@ const AppContent = () => {
                     <Route
                         path="/interconsultas/listado"
                         element={<ListadoInterconsultas />}
+                    />
+
+                    <Route
+                        path="/interconsultas/devueltas"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <InterconsultasDevueltas />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/interconsultas/:id/editar"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <EditarInterconsulta modo="editar" />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/interconsultas/:id/corregir"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <EditarInterconsulta modo="corregir" />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/especialista/bandeja"
+                        element={
+                            <RutaPorRol idRol={2}>
+                                <BandejaEspecialista />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/alertas"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <CentroAlertas />
+                            </RutaPorRol>
+                        }
                     />
 
                     <Route

@@ -1,25 +1,31 @@
 import { useState, useMemo, useEffect } from 'react';
-import api from '../api/axios';
 import TablaInterconsultas from '../components/TablaInterconsultas';
-
-const estadosDisponibles = [
-  { id: 1, nombre: 'Registrada' },
-  { id: 2, nombre: 'En lista de espera' },
-  { id: 3, nombre: 'Devuelta' },
-  { id: 4, nombre: 'Enviada' },
-];
+import PendientesLocales from '../components/PendientesLocales';
+import { useAuth } from '../context/AuthContext';
+import { ESTADOS as estadosDisponibles } from '../lib/estados';
+import { getConCache } from '../offline/catalogos';
+import { EVENTO_SYNC } from '../offline/sync';
 
 const filtrosIniciales = { estados: [], prioridad: 0, especialidad: 0, desde: '', hasta: '' };
 
 export default function ListadoInterconsultas() {
   const [filtros, setFiltros] = useState(filtrosIniciales);
   const [especialidades, setEspecialidades] = useState([]);
+  const { tieneRol } = useAuth();
+  // sube cada vez que termina una sincronización, para volver a consultar la grilla (HU21)
+  const [refresco, setRefresco] = useState(0);
+
+  useEffect(() => {
+    const alSincronizar = () => setRefresco((n) => n + 1);
+    window.addEventListener(EVENTO_SYNC, alSincronizar);
+    return () => window.removeEventListener(EVENTO_SYNC, alSincronizar);
+  }, []);
 
   // carga la li  sta de especialidades para el selector de filtro
   useEffect(() => {
     const obtenerEspecialidades = async () => {
       try {
-        const respuesta = await api.get('/especialidad');
+        const respuesta = await getConCache('/especialidad');
         setEspecialidades(Array.isArray(respuesta.data) ? respuesta.data : []);
       } catch (err) {
         // si falla, el selector queda solo con "Todas las especialidades"
@@ -59,6 +65,8 @@ export default function ListadoInterconsultas() {
 
   return (
     <div style={{ maxWidth: '900px', margin: '40px auto', padding: '20px' }}>
+
+      {tieneRol(1) && <PendientesLocales />}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
         <select name="prioridad" value={filtros.prioridad} onChange={handleChange}>
@@ -111,7 +119,7 @@ export default function ListadoInterconsultas() {
       )}
 
       <div style={{ marginTop: '20px' }}>
-        {!fechasInvalidas && <TablaInterconsultas filtros={filtrosMemo} />}
+        {!fechasInvalidas && <TablaInterconsultas filtros={filtrosMemo} refresco={refresco} />}
       </div>
     </div>
   );

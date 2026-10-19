@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useAuth, getNombreRol } from '../context/AuthContext';
+import AlertaContador from '../components/AlertaContador';
 
 export default function Interconsultas() {
   const { usuario, tieneRol } = useAuth();
 
   /*
-  tieneRol(1) -> Admin
-  tieneRol(2) -> Usuario Externo
+  tieneRol(1) -> Admin (administrativo / médico del CESFAM)
+  tieneRol(2) -> Usuario Externo (especialista del hospital)
   tieneRol(3) -> Paciente
   tieneRol(4) -> Administrador de Roles 
   */
@@ -29,9 +30,16 @@ export default function Interconsultas() {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {tieneRol(2) && (
+          <Link to="/especialista/bandeja">Bandeja de revisión (aceptar / devolver)</Link>
+        )}
         {!tieneRol(4) && (
           <Link to="/interconsultas/listado">Listado de interconsultas</Link>
         )}
+        {tieneRol(1) && (
+          <Link to="/interconsultas/devueltas">Interconsultas devueltas</Link>
+        )}
+        {tieneRol(1) && <AlertaContador />}
         {!tieneRol(4) && (
           <Link to="/EditarPerfil">Revisar mis datos personales</Link>
         )}

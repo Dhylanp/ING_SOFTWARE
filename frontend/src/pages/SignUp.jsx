@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
@@ -129,7 +129,7 @@ const SignUp = () => {
 
     if (name === 'fechaNac') {
       const soloNumeros = value.replace(/\D/g, '').slice(0, 8);
-      let formateada = '';
+      let formateada;
 
       if (soloNumeros.length <= 2) {
         formateada = soloNumeros;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 import api from '../api/axios';
@@ -34,11 +34,6 @@ const Accesos = () => {
     tipoCentro: '',   // '' | 'cesfam' | 'hospital'
     idCentro: ''      // idCesfam o idHospital según tipoCentro
   });
-
-  useEffect(() => {
-    cargarDatos();
-    cargarAccesos();
-  }, []);
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -118,6 +113,12 @@ const Accesos = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial al montar
+    cargarDatos();
+    cargarAccesos();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

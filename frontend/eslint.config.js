@@ -17,5 +17,16 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      'react-refresh/only-export-components': ['error', {
+        allowConstantExport: true,
+        allowExportNames: ['useAuth', 'getNombreRol', 'getDescripcionRol'],
+      }],
+    },
+  },
+  {
+    // utilidades de pruebas: no participan del fast refresh
+    files: ['src/test/**', '**/*.test.{js,jsx}'],
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])
