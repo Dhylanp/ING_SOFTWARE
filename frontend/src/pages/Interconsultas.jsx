@@ -1,9 +1,11 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth, getNombreRol } from '../context/AuthContext';
 import AlertaContador from '../components/AlertaContador';
 
 export default function Interconsultas() {
   const { usuario, tieneRol } = useAuth();
+  const navigate = useNavigate();
+  const estiloBoton = { width: '100%', maxWidth: '320px', padding: '12px 16px', fontSize: '16px' };
 
   /*
   tieneRol(1) -> Admin (administrativo / médico del CESFAM)
@@ -29,28 +31,41 @@ export default function Interconsultas() {
         </p>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
         {tieneRol(2) && (
-          <Link to="/especialista/bandeja">Bandeja de revisión (aceptar / devolver)</Link>
+          <button style={estiloBoton} onClick={() => navigate('/especialista/bandeja')}>
+            Bandeja de revisión (aceptar / devolver)
+          </button>
         )}
         {!tieneRol(4) && (
-          <Link to="/interconsultas/listado">Listado de interconsultas</Link>
+          <button style={estiloBoton} onClick={() => navigate('/interconsultas/listado')}>
+            Listado de interconsultas
+          </button>
         )}
         {tieneRol(1) && (
-          <Link to="/interconsultas/devueltas">Interconsultas devueltas</Link>
+          <button style={estiloBoton} onClick={() => navigate('/interconsultas/registrar')}>
+            Registrar interconsulta
+          </button>
         )}
-        {tieneRol(1) && <AlertaContador />}
+        {tieneRol(1) && (
+          <button style={estiloBoton} onClick={() => navigate('/interconsultas/devueltas')}>
+            Interconsultas devueltas
+          </button>
+        )}
+        {tieneRol(1) && (
+          <button style={estiloBoton} onClick={() => navigate('/pacientes/ficha')}>
+            Ficha del paciente
+          </button>
+        )}
         {!tieneRol(4) && (
-          <Link to="/EditarPerfil">Revisar mis datos personales</Link>
-        )}
-        {tieneRol(1) && (
-          <Link to="/interconsultas/registrar">Registrar interconsulta</Link>
-        )}
-        {tieneRol(1) && (
-          <Link to="/pacientes/ficha">Ficha del paciente</Link>
+          <button style={estiloBoton} onClick={() => navigate('/EditarPerfil')}>
+            Revisar mis datos personales
+          </button>
         )}
         {tieneRol(4) && (
-          <Link to="/GestorRoles">Gestionar Roles por Usuario</Link>
+          <button style={estiloBoton} onClick={() => navigate('/GestorRoles')}>
+            Gestionar Roles por Usuario
+          </button>
         )}
       </div>
     </div>

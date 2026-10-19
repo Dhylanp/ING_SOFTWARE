@@ -20,7 +20,7 @@ describe('AlertaContador (HU16)', () => {
     const { get } = mockApi({ 'GET /alertas/devoluciones': errorDeRed() })
     renderPagina(<AlertaContador />)
     await waitFor(() => expect(get).toHaveBeenCalled())
-    expect(screen.getByRole('link', { name: /Centro de alertas/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Centro de alertas/ })).toBeInTheDocument()
     expect(screen.queryByTestId('contador-alertas')).toBeNull()
   })
 })

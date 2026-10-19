@@ -17,6 +17,7 @@ import EditarInterconsulta from './pages/EditarInterconsulta';
 import CentroAlertas from './pages/CentroAlertas';
 import EstadoConexion from './components/EstadoConexion';
 import useSincronizacion from './hooks/useSincronizacion';
+import AlertaContador from './components/AlertaContador';
 
 // El UserWidget se monta aparte, a nivel de App, para que no se remonte.
 const RutaPrivada = () => {
@@ -66,7 +67,7 @@ const RedirectDefault = () => {
 
 // Componente interno que sí puede usar useAuth (está dentro de AuthProvider)
 const AppContent = () => {
-    const { isLoggedIn } = useAuth();
+    const { isLoggedIn, tieneRol } = useAuth();
 
     // HU21: deja la sesión lista para el Service Worker y sincroniza al volver la conexión
     useSincronizacion();
@@ -75,6 +76,7 @@ const AppContent = () => {
         <BrowserRouter>
             {/* El widget se monta una sola vez si hay sesión */}
             {isLoggedIn && <UserWidget />}
+            {isLoggedIn && tieneRol(1) && <AlertaContador />}
             {/* Aviso de "sin conexión" / registros pendientes de sincronizar */}
             {isLoggedIn && <EstadoConexion />}
 
