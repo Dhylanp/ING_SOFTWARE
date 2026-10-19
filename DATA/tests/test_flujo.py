@@ -339,6 +339,42 @@ class EdicionAdministrativaTest(BaseFlujo):  # HU03
         self.assertEqual(verificador("Bearer " + main.crea_token(ADMIN_A, 1))["rol"], 1)
 
 
+class ReenvioTest(BaseFlujo):  # HU05B
+    def test_corrige_y_reenvia_cambia_a_tramitada_y_vuelve_a_la_bandeja(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        res = main.reenviaInterconsulta(
+            id_f, BGInmediato(), main.EdicionAdministrativa(descripcion="Dolor + hemograma adjunto"), self.admin)
+        self.assertEqual(res["interconsulta"]["nombreEstado"], "Tramitada")
+        f = self.fila(id_f)
+        self.assertEqual((f["idEstado"], f["descripcion"]), (srv.E_TRAMITADA, "Dolor + hemograma adjunto"))
+        self.assertEqual([b["idFormulario"] for b in main.bandejaEspecialista(self.esp)], [id_f])
+
+    def test_reenvio_sin_cambios_tambien_es_valido(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        main.reenviaInterconsulta(id_f, BGInmediato(), None, self.admin)
+        self.assertEqual(self.fila(id_f)["idEstado"], srv.E_TRAMITADA)
+
+    def test_solo_se_reenvia_una_devuelta(self):
+        id_f = self.crea()
+        self.assertHTTP(409, main.reenviaInterconsulta, id_f, BGInmediato(), None, self.admin)
+
+    def test_ciclo_devolver_reenviar_aceptar(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        main.reenviaInterconsulta(id_f, BGInmediato(), None, self.admin)
+        self.revisa(id_f, "aceptar")
+        estados = [h["estadoNuevo"] for h in main.obtieneHistorial(id_f, self.admin)]
+        self.assertEqual(estados, ["Registrada", "Devuelta", "Tramitada", "En lista de espera"])
+
+    def test_notifica_al_paciente_al_reenviar(self):
+        id_f = self.crea()
+        self.devuelve(id_f)
+        main.reenviaInterconsulta(id_f, BGInmediato(), None, self.admin)
+        self.assertIn("en trámite", self.correos(id_f, "paciente")[-1]["asunto"])
+
+
 class HistorialTest(BaseFlujo):  # HU07
     def test_orden_cronologico_con_fecha_estados_y_responsable(self):
         id_f = self.crea()

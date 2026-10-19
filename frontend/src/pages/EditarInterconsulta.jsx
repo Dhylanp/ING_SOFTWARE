@@ -4,7 +4,7 @@ import api from '../api/axios';
 import EstadoBadge from '../components/EstadoBadge';
 import { avisos, mensajeDeError } from '../lib/avisos';
 import {
-  E_FINALIZADA, E_LISTA_ESPERA, E_AGENDADA,
+  E_DEVUELTA, E_FINALIZADA, E_LISTA_ESPERA, E_AGENDADA,
   PRIORIDADES, normalizarPrioridad,
 } from '../lib/estados';
 import { formatearFecha } from '../lib/fechas';
@@ -13,10 +13,12 @@ const etiqueta = { display: 'block', fontWeight: 'bold', marginBottom: '5px' };
 const bloque = { marginBottom: '15px' };
 const campo = (error) => ({ width: '100%', ...(error ? { border: '1px solid var(--danger)' } : {}) });
 
-// HU03: modificar SOLO datos administrativos.
-export default function EditarInterconsulta() {
+// HU03 (modo "editar"): modificar SOLO datos administrativos.
+// HU05B (modo "corregir"): corregir una interconsulta devuelta y reenviarla.
+export default function EditarInterconsulta({ modo = 'editar' }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const corrigiendo = modo === 'corregir';
 
   const [original, setOriginal] = useState(null);
   const [valores, setValores] = useState({ descripcion: '', prioridad: 'media', idEspecialidad: '', idHospital: '' });
@@ -92,18 +94,24 @@ export default function EditarInterconsulta() {
     }
     const c = cambios();
 
-    if (Object.keys(c).length === 0) {
+    if (!corrigiendo && Object.keys(c).length === 0) {
       setErrores({ general: 'No hay cambios para guardar.' });
       return;
     }
 
     setGuardando(true);
     try {
-      await api.patch(`/formulario/${id}/administrativo`, c);
-      await avisos.exito('Cambios guardados', 'Los datos administrativos fueron actualizados.');
-      navigate('/interconsultas/listado'); // la grilla se vuelve a consultar con los datos nuevos
+      if (corrigiendo) {
+        const r = await api.post(`/formulario/${id}/reenviar`, c);
+        await avisos.exito('Interconsulta reenviada', r.data.mensaje || 'La interconsulta quedó en estado Tramitada.');
+        navigate('/interconsultas/devueltas');
+      } else {
+        await api.patch(`/formulario/${id}/administrativo`, c);
+        await avisos.exito('Cambios guardados', 'Los datos administrativos fueron actualizados.');
+        navigate('/interconsultas/listado'); // la grilla se vuelve a consultar con los datos nuevos
+      }
     } catch (err) {
-      avisos.error('No se pudo guardar', mensajeDeError(err));
+      avisos.error(corrigiendo ? 'No se pudo reenviar' : 'No se pudo guardar', mensajeDeError(err));
     } finally {
       setGuardando(false);
     }
@@ -122,12 +130,15 @@ export default function EditarInterconsulta() {
   }
 
   const idEstado = Number(original.idEstado);
-  const volver = '/interconsultas/listado';
+  const volver = corrigiendo ? '/interconsultas/devueltas' : '/interconsultas/listado';
 
-  if (idEstado === E_FINALIZADA) {
+  let bloqueo = '';
+  if (corrigiendo && idEstado !== E_DEVUELTA) bloqueo = 'Solo se pueden corregir y reenviar interconsultas en estado Devuelta.';
+  if (!corrigiendo && idEstado === E_FINALIZADA) bloqueo = 'Una interconsulta finalizada no se puede modificar.';
+  if (bloqueo) {
     return (
       <div style={contenedor}>
-        <p role="alert">Una interconsulta finalizada no se puede modificar.</p>
+        <p role="alert">{bloqueo}</p>
         <Link to={volver}>← Volver</Link>
       </div>
     );
@@ -140,8 +151,15 @@ export default function EditarInterconsulta() {
     <div style={contenedor}>
       <Link to={volver}>← Volver</Link>
       <h2 style={{ marginTop: '16px' }}>
-        {`Modificar datos administrativos · #${id}`}
+        {corrigiendo ? `Corregir y reenviar interconsulta #${id}` : `Modificar datos administrativos · #${id}`}
       </h2>
+
+      {corrigiendo && (
+        <div style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', padding: '12px', borderRadius: '8px', marginBottom: '16px', textAlign: 'left' }}>
+          <p><strong>Motivo de devolución:</strong> {original.motivoDevolucion || 'No informado'}</p>
+          {original.observacionDevolucion && <p><strong>Observaciones:</strong> {original.observacionDevolucion}</p>}
+        </div>
+      )}
 
       <section aria-label="Datos que no se pueden editar" style={{ ...bloque, textAlign: 'left', backgroundColor: 'var(--surface-alt)', padding: '12px', borderRadius: '8px' }}>
         <p><strong>Paciente:</strong> {original.nombrePersona}</p>
@@ -191,7 +209,7 @@ export default function EditarInterconsulta() {
 
         <div style={{ display: 'flex', gap: '10px' }}>
           <button type="submit" disabled={guardando} style={{ fontWeight: 'bold' }}>
-            {guardando ? 'Guardando...' : 'Guardar cambios'}
+            {guardando ? 'Guardando...' : corrigiendo ? 'Reenviar interconsulta' : 'Guardar cambios'}
           </button>
           <button type="button" className="btn-secundario" onClick={() => navigate(volver)}>Cancelar</button>
         </div>

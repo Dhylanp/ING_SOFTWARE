@@ -3,7 +3,7 @@ Lógica de negocio del flujo de interconsultas que NO depende de FastAPI ni de
 la base de datos, para poder probarla de forma aislada (ver DATA/tests).
 
 Contiene:
-  - Estados del flujo y transiciones permitidas (HU23).
+  - Estados del flujo y transiciones permitidas (HU05B, HU23).
   - Plantillas de correo por etapa (HU15, HU23).
   - Envío de correo por SMTP, con modo "simulado" si no hay SMTP configurado.
   - Utilidades de fecha.
@@ -42,6 +42,7 @@ NOMBRES_ESTADO = {
 TRANSICIONES = {
     "aceptar": ({E_REGISTRADA, E_TRAMITADA}, E_LISTA_ESPERA),
     "devolver": ({E_REGISTRADA, E_TRAMITADA}, E_DEVUELTA),
+    "reenviar": ({E_DEVUELTA}, E_TRAMITADA),
 }
 
 def valida_transicion(accion: str, estado_actual: int) -> int:

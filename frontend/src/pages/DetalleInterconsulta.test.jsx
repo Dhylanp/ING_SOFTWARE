@@ -26,6 +26,7 @@ describe('DetalleInterconsulta (HU07)', () => {
     // Assert
     expect(await screen.findAllByTestId('evento-historial')).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Modificar datos administrativos' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Corregir y reenviar' })).not.toBeInTheDocument()
   })
 
   test('el especialista no ve la edición administrativa', async () => {

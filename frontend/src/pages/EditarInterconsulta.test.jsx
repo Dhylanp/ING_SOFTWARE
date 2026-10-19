@@ -15,7 +15,7 @@ const catalogos = {
 }
 const editar = { path: '/interconsultas/:id/editar', ruta: '/interconsultas/9/editar' }
 
-describe('EditarInterconsulta (HU03)', () => {
+describe('EditarInterconsulta (HU03 / HU05B)', () => {
   beforeEach(() => localStorage.clear())
 
   test('envía solo los campos cambiados y vuelve al listado', async () => {
@@ -60,4 +60,25 @@ describe('EditarInterconsulta (HU03)', () => {
     expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument()
   })
 
+  test('modo corregir reenvía con POST y vuelve a devueltas', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const api = mockApi({
+      ...catalogos,
+      'GET /formulario/9': formulario({ idEstado: 3, nombreEstado: 'Devuelta', motivoDevolucion: 'Faltan exámenes' }),
+      'POST /formulario/9/reenviar': { mensaje: 'Reenviada' },
+    })
+    vi.spyOn(avisos, 'exito').mockResolvedValue({})
+    renderPagina(<EditarInterconsulta modo="corregir" />, { path: '/interconsultas/:id/corregir', ruta: '/interconsultas/9/corregir' })
+    const descripcion = await screen.findByLabelText('Motivo de derivación (*):')
+    await user.clear(descripcion)
+    await user.type(descripcion, 'Dolor con ECG adjunto')
+
+    // Act
+    await user.click(screen.getByRole('button', { name: 'Reenviar interconsulta' }))
+
+    // Assert
+    expect(await screen.findByTestId('ubicacion')).toHaveTextContent('/interconsultas/devueltas')
+    expect(api.post).toHaveBeenCalledWith('/formulario/9/reenviar', { descripcion: 'Dolor con ECG adjunto' })
+  })
 })

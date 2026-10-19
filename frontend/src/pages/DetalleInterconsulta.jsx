@@ -269,6 +269,9 @@ export default function DetalleInterconsulta() {
                         {tieneRol(1) && Number(interconsulta.idEstado) !== E_FINALIZADA && (
                             <Link to={`/interconsultas/${id}/editar`}>Modificar datos administrativos</Link>
                         )}
+                        {tieneRol(1) && Number(interconsulta.idEstado) === E_DEVUELTA && (
+                            <Link to={`/interconsultas/${id}/corregir`}>Corregir y reenviar</Link>
+                        )}
                     </div>
                 </div>
             ) : (

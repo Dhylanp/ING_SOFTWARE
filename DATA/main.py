@@ -1624,7 +1624,7 @@ def descargaDocumento(idDocumento: int):
 # ======================================================================
 # ======================================================================
 
-ROL_ADMINISTRATIVO = 1   # CESFAM: registra y corrige
+ROL_ADMINISTRATIVO = 1   # CESFAM: registra, corrige, reenvía
 ROL_ESPECIALISTA = 2     # Hospital ("Externo"): revisa, acepta, devuelve
 ROL_PACIENTE = 3
 
@@ -1837,7 +1837,7 @@ def notifica_cambio_estado(id_formulario: int, destinos=("paciente",)):
 # ----------------------------------------------------------------------
 class EdicionAdministrativa(BaseModel):
     """
-    HU03: SOLO estos campos son editables. Cualquier otro
+    HU03 / HU05B: SOLO estos campos son editables. Cualquier otro
     (paciente, CESFAM, fecha, estado...) se rechaza con 422.
     """
     model_config = ConfigDict(extra="forbid")
@@ -1896,7 +1896,7 @@ def obtieneDevolucion(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
 
 
 # ----------------------------------------------------------------------
-# HU03: edición administrativa
+# HU03 / HU05B: edición administrativa y reenvío
 # ----------------------------------------------------------------------
 def _aplica_correcciones(cursor, f: dict, datos: EdicionAdministrativa) -> dict:
     """Valida y devuelve {columna: valor} con lo que realmente cambia."""
@@ -1952,6 +1952,28 @@ def modificaDatosAdministrativos(
         )
         conexion.commit()
         return _presenta_formulario(_carga_formulario(cursor, idFormulario), ROL_ADMINISTRATIVO)
+
+
+@app.post("/formulario/{idFormulario}/reenviar")
+def reenviaInterconsulta(
+    idFormulario: int,
+    background: BackgroundTasks,
+    datos: EdicionAdministrativa | None = None,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    datos = datos or EdicionAdministrativa()
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] != srv.E_DEVUELTA:
+            raise HTTPException(status_code=409, detail="Solo se puede reenviar una interconsulta en estado Devuelta")
+        cambios = _aplica_correcciones(cursor, f, datos)
+        _cambia_estado(cursor, f, "reenviar", usuario,
+                       "Corregida y reenviada" if cambios else "Reenviada sin cambios", cambios)
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), ROL_ADMINISTRATIVO)
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",))
+    return {"codigo": 1, "mensaje": "Interconsulta reenviada (Tramitada)", "interconsulta": resultado}
 
 
 # ----------------------------------------------------------------------

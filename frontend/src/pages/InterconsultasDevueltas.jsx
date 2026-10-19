@@ -62,7 +62,7 @@ export default function InterconsultasDevueltas() {
       <Link to="/interconsultas">← Volver al inicio</Link>
       <h2 style={{ marginTop: '16px' }}>Interconsultas devueltas</h2>
       <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
-        Seleccione «Ver motivo» para conocer las observaciones del hospital.
+        Seleccione «Ver motivo» para conocer las observaciones del hospital y luego corrija y reenvíe el caso.
       </p>
 
       {cargando && <p>Cargando...</p>}
@@ -103,7 +103,8 @@ export default function InterconsultasDevueltas() {
                           aria-label={`${expandida ? 'Ocultar' : 'Ver'} motivo de la interconsulta ${id}`}
                         >
                           {expandida ? 'Ocultar motivo' : 'Ver motivo'}
-                        </button>
+                        </button>{' '}
+                        <Link to={`/interconsultas/${id}/corregir`}>Corregir y reenviar</Link>
                       </td>
                     </tr>
                     {expandida && (

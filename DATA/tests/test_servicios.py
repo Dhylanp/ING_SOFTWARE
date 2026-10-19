@@ -21,6 +21,11 @@ class TransicionesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 srv.valida_transicion("aceptar", origen)
 
+    def test_reenviar_solo_desde_devuelta(self):
+        self.assertEqual(srv.valida_transicion("reenviar", srv.E_DEVUELTA), srv.E_TRAMITADA)
+        with self.assertRaises(ValueError):
+            srv.valida_transicion("reenviar", srv.E_REGISTRADA)
+
     def test_accion_desconocida(self):
         with self.assertRaises(ValueError):
             srv.valida_transicion("borrar", 1)

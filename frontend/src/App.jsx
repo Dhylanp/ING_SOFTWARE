@@ -118,7 +118,16 @@ const AppContent = () => {
                         path="/interconsultas/:id/editar"
                         element={
                             <RutaPorRol idRol={1}>
-                                <EditarInterconsulta />
+                                <EditarInterconsulta modo="editar" />
+                            </RutaPorRol>
+                        }
+                    />
+
+                    <Route
+                        path="/interconsultas/:id/corregir"
+                        element={
+                            <RutaPorRol idRol={1}>
+                                <EditarInterconsulta modo="corregir" />
                             </RutaPorRol>
                         }
                     />
