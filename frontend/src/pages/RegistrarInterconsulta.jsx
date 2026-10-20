@@ -34,6 +34,9 @@ export default function RegistrarInterconsulta() {
     const [especialidades, setEspecialidades] = useState([]);
     const [cargandoEspecialidades, setCargandoEspecialidades] = useState(false);
     const [cargandoHospitales, setCargandoHospitales] = useState(false);
+    const [busquedaHospital, setBusquedaHospital] = useState('');
+    const [listaAbierta, setListaAbierta] = useState(false);
+    const [listaRutAbierta, setListaRutAbierta] = useState(false);
 
     // CESFAM del médico: salen de los accesos con rol 1 que trae la sesión
     const cesfamsMedico = (usuario?.accesos || []).filter(
@@ -52,6 +55,19 @@ export default function RegistrarInterconsulta() {
             return String(p.rut) === rutTexto && String(p.dv).toLowerCase() === dv;
         }) || null
         : null;
+
+    // RUT que coinciden con lo escrito (ignora puntos y espacios), máximo 8 sugerencias
+    const sugerenciasRut = rutLimpio.length >= 1
+        ? personas
+            .filter((p) => `${p.rut}-${p.dv}`.toLowerCase().startsWith(rutLimpio))
+            .slice(0, 8)
+        : [];
+
+    const elegirRut = (p) => {
+        setFormData({ ...formData, rut: `${p.rut}-${p.dv}` });
+        setListaRutAbierta(false);
+        if (errores.rut) setErrores({ ...errores, rut: '' });
+    };
 
     // mensaje bajo el RUT: el error de validación o, mientras escribe, "no encontrado"
     const mensajeRut =
@@ -184,6 +200,28 @@ export default function RegistrarInterconsulta() {
         return nuevos;
     };
 
+    // quita tildes y mayúsculas para comparar ("Hospital Sótero" coincide con "sotero")
+    const normalizar = (texto) =>
+        String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    const hospitalesFiltrados = hospitales.filter((h) =>
+        normalizar(h.nombreHospital).includes(normalizar(busquedaHospital))
+    );
+
+    const elegirHospital = (h) => {
+        setFormData({ ...formData, idHospital: String(h.idHospital) });
+        setBusquedaHospital(h.nombreHospital);
+        setListaAbierta(false);
+        if (errores.idHospital) setErrores({ ...errores, idHospital: '' });
+    };
+
+    const cambiarBusquedaHospital = (e) => {
+        setBusquedaHospital(e.target.value);
+        setListaAbierta(true);
+        // si escribe de nuevo, se descarta el hospital elegido antes
+        if (formData.idHospital) setFormData({ ...formData, idHospital: '' });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -213,8 +251,9 @@ export default function RegistrarInterconsulta() {
         // HU19: sin internet el registro se guarda en el dispositivo y se envía después
         const guardarSinConexion = async () => {
             await guardarPendiente({ payload, nombrePaciente: paciente.nombrePersona });
-            await publicarSesionParaSW().catch(() => {});
+            await publicarSesionParaSW().catch(() => { });
             setFormData(formularioVacio);
+            setBusquedaHospital('');
             setErrores({});
             avisos.fire({
                 icon: 'info',
@@ -276,16 +315,54 @@ export default function RegistrarInterconsulta() {
 
             <form onSubmit={handleSubmit} noValidate>
                 {/* rut del paciente */}
-                <div style={{ marginBottom: '15px' }}>
+                <div style={{ position: 'relative' }}>
                     <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>RUT del Paciente (*):</label>
                     <input
                         type="text"
                         name="rut"
                         placeholder="Ej: 12345678-9"
                         value={formData.rut}
-                        onChange={handleChange}
+                        onChange={(e) => {
+                            handleChange(e);
+                            setListaRutAbierta(true);
+                        }}
+                        onFocus={() => setListaRutAbierta(true)}
+                        onBlur={() => setTimeout(() => setListaRutAbierta(false), 150)}
+                        autoComplete="off"
                         style={estiloCampo(Boolean(mensajeRut))}
                     />
+                    {listaRutAbierta && !paciente && sugerenciasRut.length > 0 && (
+                        <ul
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                zIndex: 10,
+                                maxHeight: '220px',
+                                overflowY: 'auto',
+                                margin: '4px 0 0',
+                                padding: 0,
+                                listStyle: 'none',
+                                background: 'var(--surface)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '6px',
+                                boxShadow: 'var(--shadow)',
+                            }}
+                        >
+                            {sugerenciasRut.map((p) => (
+                                <li
+                                    key={p.idPersona}
+                                    role="option"
+                                    onMouseDown={() => elegirRut(p)}
+                                    style={{ padding: '8px 10px', cursor: 'pointer', color: 'var(--text-h)' }}
+                                >
+                                    {p.rut}-{p.dv} — {p.nombrePersona}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+
                     {paciente && (
                         <small style={{ ...estiloMensaje, color: 'var(--success-text)' }}>
                             Paciente: <strong>{paciente.nombrePersona}</strong>
@@ -339,33 +416,55 @@ export default function RegistrarInterconsulta() {
                 </div>
 
                 {/* selector de hospital de destino */}
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Hospital de Destino (*):</label>
-                    <select
-                        name="idHospital"
-                        value={formData.idHospital}
-                        onChange={handleChange}
+                <div style={{ position: 'relative' }}>
+                    <input
+                        type="text"
+                        name="busquedaHospital"
+                        placeholder={cargandoHospitales ? 'Cargando hospitales...' : 'Escriba para buscar un hospital'}
+                        value={busquedaHospital}
+                        onChange={cambiarBusquedaHospital}
+                        onFocus={() => setListaAbierta(true)}
+                        onBlur={() => setTimeout(() => setListaAbierta(false), 150)}
                         disabled={cargandoHospitales}
+                        autoComplete="off"
                         style={estiloCampo(Boolean(errores.idHospital))}
-                    >
-                        <option value="">
-                            {cargandoHospitales ? 'Cargando hospitales...' : 'Seleccione un hospital'}
-                        </option>
-                        {hospitales.map((h) => (
-                            <option key={h.idHospital} value={h.idHospital}>
-                                {h.nombreHospital}
-                            </option>
-                        ))}
-                    </select>
-                    {errores.idHospital && (
-                        <small className="texto-error" style={estiloMensaje}>
-                            {errores.idHospital}
-                        </small>
-                    )}
-                    {!cargandoHospitales && hospitales.length === 0 && (
-                        <small className="texto-error" style={estiloMensaje}>
-                            No hay hospitales disponibles.
-                        </small>
+                    />
+                    {listaAbierta && !cargandoHospitales && (
+                        <ul
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                zIndex: 10,
+                                maxHeight: '220px',
+                                overflowY: 'auto',
+                                margin: '4px 0 0',
+                                padding: 0,
+                                listStyle: 'none',
+                                background: 'var(--surface)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '6px',
+                                boxShadow: 'var(--shadow)',
+                            }}
+                        >
+                            {hospitalesFiltrados.length === 0 ? (
+                                <li style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
+                                    Ningún hospital coincide con lo escrito.
+                                </li>
+                            ) : (
+                                hospitalesFiltrados.map((h) => (
+                                    <li
+                                        key={h.idHospital}
+                                        role="option"
+                                        onMouseDown={() => elegirHospital(h)}
+                                        style={{ padding: '8px 10px', cursor: 'pointer', color: 'var(--text-h)' }}
+                                    >
+                                        {h.nombreHospital}
+                                    </li>
+                                ))
+                            )}
+                        </ul>
                     )}
                 </div>
 
@@ -439,7 +538,7 @@ export default function RegistrarInterconsulta() {
                 >
                     Guardar y emitir interconsulta
                 </button>
-            </form>
-        </div>
+            </form >
+        </div >
     );
 }
