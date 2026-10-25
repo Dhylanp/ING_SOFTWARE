@@ -1,8 +1,8 @@
-# gestion_interconsultas_cesfam
+# Gestión de Interconsultas CESFAM
 
 Sistema de gestión y trazabilidad de interconsultas entre atención primaria (CESFAM) y atención secundaria (hospitales). Permite registrar, validar, dar seguimiento y sincronizar derivaciones médicas, incluso sin conexión a internet.
 
-Proyecto de Ingeniería de Software (PTEC105-8573, UNAB).
+Proyecto de Ingeniería de Software (PTEC105-8573, Universidad Andrés Bello).
 
 ## Integrantes
 
@@ -10,61 +10,86 @@ Proyecto de Ingeniería de Software (PTEC105-8573, UNAB).
 - Manuel Macchiavello
 - Dhylan Pizarro
 
-## Estado del proyecto (Sprint 3, cerrado el 21/10/2026)
+## Qué hace
 
-Se completaron las 11 historias de usuario del Sprint 3 (HU03, HU05A, HU05B, HU07, HU09, HU15, HU16, HU17, HU19, HU21 y HU23). Todo está integrado en `develop` (PR #58).
+**Registro y consulta**
+- Registro de interconsultas con validación de datos obligatorios y de prioridad clínica (Alta/Media/Baja).
+- Adjuntar antecedentes y fichas a la interconsulta.
+- Listado con filtros, y detalle de cada interconsulta.
+- Consulta y actualización de los datos de contacto del paciente, por el personal administrativo o por el propio paciente desde su perfil.
 
-| HU | Qué resuelve |
-|----|--------------|
-| HU03 | Editar datos administrativos de una interconsulta |
-| HU05A | Ver el motivo de devolución |
-| HU05B | Corregir y reenviar una interconsulta devuelta |
-| HU07 | Historial de estados (línea de tiempo) |
-| HU09 | Cierre con causal oficial |
-| HU15 | Correo al paciente por cada cambio de estado (sin datos clínicos) |
-| HU16 | Alertas de interconsultas devueltas |
-| HU17 | Asignar hora médica y avisar al paciente |
-| HU19 | Registro sin conexión (IndexedDB + Service Worker) |
-| HU21 | Sincronización automática al reconectar (idempotente por `uuidLocal`) |
-| HU23 | Bandeja del especialista: aceptar o devolver con motivo |
+**Flujo de derivación**
+- El especialista del hospital revisa su bandeja y acepta la interconsulta o la devuelve con un motivo.
+- El CESFAM ve las interconsultas devueltas con su motivo y observaciones, las corrige y las reenvía.
+- Edición de los datos administrativos de una interconsulta.
+- Asignación de hora médica (fecha, hora y centro).
+- Cierre con una causal oficial.
+- Historial de estados (línea de tiempo) de cada interconsulta.
 
-Estados de una interconsulta: `Registrada` → `Tramitada` → `En lista de espera` → `Agendada` → `Finalizada`, y `Devuelta` cuando el especialista la devuelve.
+Estados: `Registrada` → `Tramitada` → `En lista de espera` → `Agendada` → `Finalizada`, y `Devuelta` cuando el especialista la devuelve.
 
-Roles: 1 administrativo CESFAM, 2 especialista de hospital, 3 paciente, 4 gestor de roles.
+**Notificaciones y alertas**
+- Correo al paciente en cada cambio de estado y al asignarle hora médica. Los correos nunca incluyen datos clínicos, solo el número de caso y la etapa.
+- Correo al CESFAM de origen cuando el especialista acepta o devuelve.
+- Centro de alertas con contador de interconsultas devueltas pendientes de revisar.
+
+**Trabajo sin conexión**
+- Los registros se guardan localmente (IndexedDB) cuando no hay red y se muestran como pendientes.
+- Al reconectar se sincronizan solos. La sincronización es idempotente (`uuidLocal`), así que un reintento no duplica registros.
+
+**Seguridad y roles**
+- Inicio de sesión con JWT y contraseñas con hash (bcrypt).
+- Control de acceso por rol: 1 administrativo CESFAM, 2 especialista de hospital, 3 paciente, 4 gestor de roles (asigna roles a los usuarios).
 
 ## Arquitectura y tecnologías
 
 Monolítico modular.
 
-- **Backend:** Python 3.11 + FastAPI (`DATA/main.py`, `DATA/servicios.py`), autenticación con JWT.
-- **Base de datos:** MySQL. La migración del Sprint 3 se aplica sola al arrancar la API (`AUTO_MIGRAR=1`, equivale a `DATA/migraciones/001_sprint3.sql`).
-- **Frontend:** React + Vite, PWA con Service Worker e IndexedDB para el modo sin conexión.
-- **Correo:** SMTP (`enviar_correo` en `DATA/servicios.py`). Con `SMTP_HOST` vacío los correos se simulan y quedan en la tabla `notificacion_correo`. El envío real se verificó el 21/10/2026 en el despliegue de Railway.
-- **Despliegue:** API en Railway (`Procfile`: `uvicorn DATA.main:app`).
-- `backend/` contiene un servidor Express antiguo que ya no se usa.
+| Capa | Tecnología |
+|------|------------|
+| Backend | Python 3.11, FastAPI (`DATA/main.py`, `DATA/servicios.py`) |
+| Base de datos | MySQL |
+| Frontend | React + Vite, PWA con Service Worker e IndexedDB |
+| Autenticación | JWT |
+| Correo | SMTP |
+| Pruebas | pytest (backend), Vitest + React Testing Library (frontend) |
+| Despliegue | API en Railway (`Procfile`) |
+
+La migración del esquema se aplica sola al arrancar la API (`AUTO_MIGRAR=1`, equivale a `DATA/migraciones/001_sprint3.sql`).
 
 ## Organización del repositorio
 
 - `DATA/`: API FastAPI, servicios, migraciones, colección Postman y pruebas (`DATA/tests`).
-- `frontend/`: interfaz React (páginas, componentes, `offline/` y `public/sw.js`).
-- `docs/sprint3/`: guía del Sprint 3 y scripts de prueba con MySQL y modo sin conexión.
-- `HANDOFF.md`: traspaso del trabajo del Sprint 3.
+- `frontend/`: interfaz React. Páginas en `src/pages`, componentes en `src/components`, modo sin conexión en `src/offline` y Service Worker en `public/sw.js`.
+- `docs/`: guías y scripts de prueba con MySQL y modo sin conexión.
+- `backend/`: servidor Express antiguo, ya no se usa.
 
 ## Cómo ejecutarlo
 
-Backend (Python 3.11; pydantic 2.9.2 no tiene wheel para 3.13 en Windows):
+### Backend
+
+Requiere Python 3.11 (pydantic 2.9.2 no tiene wheel para 3.13 en Windows).
 
 ```bash
 py -3.11 -m venv .venv
-.venv/Scripts/activate
+.venv/Scripts/activate        # PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-# configurar variables a partir de DATA/.env.example (el código NO lee .env: van como variables de entorno)
 uvicorn DATA.main:app --reload
 ```
 
-Variables principales: `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD`, `JWT_SECRET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `CESFAM_CORREO_DEFAULT`.
+El código no lee archivos `.env`: las variables van como variables de entorno de la terminal o de Railway. `DATA/.env.example` lista cuáles son.
 
-Frontend:
+| Variable | Para qué |
+|----------|----------|
+| `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD` | Conexión a MySQL (Railway las inyecta solas) |
+| `JWT_SECRET` | Firma de los tokens |
+| `AUTO_MIGRAR` | `1` aplica la migración al arrancar, `0` la desactiva |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `SMTP_SSL` | Envío real de correos |
+| `CESFAM_CORREO_DEFAULT` | Correo de respaldo cuando un CESFAM no tiene uno registrado |
+
+Si `SMTP_HOST` está vacío los correos se simulan: no salen, pero quedan registrados en la tabla `notificacion_correo`.
+
+### Frontend
 
 ```bash
 cd frontend
@@ -72,16 +97,48 @@ npm install
 npm run dev
 ```
 
-El Service Worker solo se registra en la versión compilada: para probar el modo sin conexión usar `npm run build && npm run preview`.
+El Service Worker solo se registra en la versión compilada. Para probar el modo sin conexión:
+
+```bash
+npm run build && npm run preview
+```
+
+y en DevTools > Network marcar Offline.
+
+## Endpoints principales
+
+| Área | Endpoints |
+|------|-----------|
+| Acceso | `POST /login`, `POST /persona`, `GET /persona`, `GET /rol`, `POST /acceso`, `DELETE /acceso/...` |
+| Catálogos | `GET /region`, `/comuna/{region}`, `/hospital/{comuna}`, `/cesfam/{comuna}`, `/especialidad` |
+| Interconsultas | `POST /formulario`, `GET /formulario/{id}`, `GET /formulario/filtrar`, `PATCH /formulario/{id}/administrativo` |
+| Documentos | `POST` y `GET /formulario/{id}/documentos`, `GET /documentos/{id}` |
+| Contacto | `GET` y `PATCH /contactos/{persona}`, `GET` y `PUT /persona/{id}/perfil` |
+| Revisión del especialista | `GET /especialista/bandeja`, `POST /formulario/{id}/revision` |
+| Devoluciones | `GET /formulario/{id}/devolucion`, `POST /formulario/{id}/reenviar`, `GET /alertas/devoluciones`, `POST /alertas/devoluciones/revisar` |
+| Seguimiento | `GET /formulario/{id}/historial`, `POST /formulario/{id}/cita`, `POST /formulario/{id}/cierre`, `GET /formulario/{id}/notificaciones` |
+| Sin conexión | `POST /sincronizar` |
 
 ## Pruebas
 
-Verificadas el 21/10/2026 sobre `develop` (commit `1430f82`):
+```bash
+python -m pytest DATA/tests          # backend: 72 pruebas
+cd frontend && npm test              # frontend: 63 pruebas
+cd frontend && npm run lint
+```
 
-- Backend: `python -m pytest DATA/tests`, 72 pruebas aprobadas.
-- Frontend: `cd frontend && npm test`, 63 pruebas aprobadas (Vitest + React Testing Library).
-- HU13 y HU14 solo tienen prueba manual.
+Además, `docs/` incluye un script que prueba el flujo completo contra un MySQL real y otro que prueba el modo sin conexión en Chrome.
 
-## Seguimiento
+## Despliegue
 
-Tablero en Taiga: proyecto «Gestión de listas de espera en atención primaria». Las minutas de las dailys, el DoD, las retrospectivas y la matriz de trazabilidad están en los documentos del Sprint.
+La API corre en Railway con el `Procfile`:
+
+```
+web: uvicorn DATA.main:app --host 0.0.0.0 --port $PORT
+```
+
+Las variables de MySQL las inyecta Railway. Las de SMTP se configuran en el panel del servicio. El envío real de correos se verificó funcionando en Railway.
+
+## Seguimiento del proyecto
+
+El tablero está en Taiga: «Gestión de listas de espera en atención primaria».
