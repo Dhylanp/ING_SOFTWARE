@@ -1,0 +1,277 @@
+:root {
+  /* Fondos */
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-alt: #f2f4f8;
+
+  /* Textos */
+  --text: #4b5563;
+  --text-h: #111827;
+  --text-muted: #6b7280;
+
+  /* Bordes y sombras */
+  --border: #d9dee7;
+  --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+
+  /* Color principal (botones, links) */
+  --primary: #0056b3;
+  --primary-hover: #004494;
+  --on-primary: #ffffff;
+  --primary-soft: #eaf1fb;
+  --primary-soft-border: #c7daf5;
+
+  /* Estados */
+  --danger: #c0392b;
+  --danger-text: #b91c1c;
+  --success-bg: #d4edda;
+  --success-text: #155724;
+  --error-bg: #f8d7da;
+  --error-text: #721c24;
+  --warning-bg: #fff3cd;
+  --warning-text: #856404;
+
+  --code-bg: #f4f3ec;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: light;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #111827;
+  --surface: #1f2937;
+  --surface-alt: #273244;
+
+  --text: #cbd5e1;
+  --text-h: #f3f4f6;
+  --text-muted: #9ca3af;
+
+  --border: #374151;
+  --shadow: rgba(0, 0, 0, 0.5) 0 10px 15px -3px, rgba(0, 0, 0, 0.3) 0 4px 6px -2px;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --on-primary: #ffffff;
+  --primary-soft: rgba(59, 130, 246, 0.15);
+  --primary-soft-border: rgba(59, 130, 246, 0.4);
+
+  --danger: #dc2626;
+  --danger-text: #f87171;
+  --success-bg: rgba(34, 197, 94, 0.15);
+  --success-text: #86efac;
+  --error-bg: rgba(239, 68, 68, 0.15);
+  --error-text: #fca5a5;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-text: #fcd34d;
+
+  --code-bg: #1f2028;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
+
+/* ===== Botones ===== */
+button {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Botón rojo (cerrar sesión, eliminar, etc.): <button className="btn-peligro"> */
+.btn-peligro {
+  background-color: var(--danger);
+}
+
+.btn-peligro:hover:not(:disabled) {
+  background-color: var(--danger);
+  filter: brightness(0.9);
+}
+
+/* ===== Campos de formulario ===== */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  background-color: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* ===== Links y mensajes de error ===== */
+a {
+  color: var(--primary);
+}
+
+/* Un solo rojo para errores de validación: <span className="texto-error"> */
+.texto-error {
+  color: var(--danger-text);
+}
+
+/* Popups de SweetAlert2 (siguen el tema claro/oscuro) */
+.swal2-popup {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.swal2-title {
+  color: var(--text-h);
+}
+
+.swal2-html-container {
+  color: var(--text);
+}
+
+.swal2-styled.swal2-confirm {
+  background-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.swal2-styled.swal2-confirm:hover {
+  background-color: var(--primary-hover);
+}
+
+.swal2-styled.swal2-cancel {
+  background-color: var(--surface-alt);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+}
+
+/* Botón de confirmar en rojo (para diálogos de eliminar) */
+.swal2-styled.swal2-confirm.swal-peligro {
+  background-color: var(--danger);
+  color: var(--on-primary);
+}
+
+.swal2-styled.swal2-confirm.swal-peligro:hover {
+  background-color: var(--danger);
+  filter: brightness(0.9);
+}
+
+/* El ícono de éxito trae círculos blancos fijos que se ven mal en modo oscuro */
+.swal2-success [class^='swal2-success-circular-line'],
+.swal2-success-fix {
+  background: transparent !important;
+}
+/* Botón secundario (cancelar, volver): <button className="btn-secundario"> */
+.btn-secundario {
+  background-color: var(--surface-alt);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+}
+
+.btn-secundario:hover:not(:disabled) {
+  background-color: var(--surface-alt);
+  filter: brightness(0.95);
+}
+
+/* Foco visible para quien navega con teclado */
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}

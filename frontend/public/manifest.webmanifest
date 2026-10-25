@@ -1,0 +1,10 @@
+{
+  "name": "Gestión de Interconsultas CESFAM",
+  "short_name": "Interconsultas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#0056b3",
+  "lang": "es-CL",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

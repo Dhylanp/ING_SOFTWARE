@@ -1,0 +1,2421 @@
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, BackgroundTasks
+import mysql.connector
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from contextlib import contextmanager
+from typing import Literal
+from datetime import date, datetime, timedelta, timezone
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from urllib.parse import quote
+import bcrypt
+import os
+import re
+import logging
+import jwt
+
+# La lógica pura (estados, plantillas de correo, SMTP) vive en servicios.py.
+# Se admite ejecutar como paquete (uvicorn DATA.main:app) o desde la carpeta DATA.
+try:
+    from DATA import servicios as srv
+except ImportError:  # pragma: no cover
+    import servicios as srv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("api-lista-espera")
+
+app = FastAPI(title="API Lista de Espera")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ======================================================================
+# Utilidades de prioridad
+# ======================================================================
+_PRIORIDAD_A_BD = {
+    'alta': '1', 'media': '2', 'baja': '3',
+    '1': '1', '2': '2', '3': '3',
+}
+_PRIORIDAD_DESDE_BD = {
+    '1': 'alta', '2': 'media', '3': 'baja',
+    'alta': 'alta', 'media': 'media', 'baja': 'baja',
+}
+
+
+def normaliza_prioridad_entrada(valor: str) -> str:
+    if valor is None:
+        raise ValueError("prioridad no puede ser nula")
+    v = str(valor).strip().lower()
+    if v not in _PRIORIDAD_A_BD:
+        raise ValueError("prioridad debe ser 'alta', 'media' o 'baja'")
+    return _PRIORIDAD_A_BD[v]
+
+
+def normaliza_prioridad_salida(valor):
+    if valor is None:
+        return None
+    v = str(valor).strip().lower()
+    return _PRIORIDAD_DESDE_BD.get(v, v)
+
+
+# ======================================================================
+# Utilidades de contraseña
+# ======================================================================
+def hash_clave(clave: str) -> str:
+    if not isinstance(clave, str) or clave == "":
+        raise ValueError("La clave no puede estar vacía")
+    pwd_bytes = clave.encode("utf-8")[:72]
+    return bcrypt.hashpw(pwd_bytes, bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def verifica_clave(clave: str, hash_guardado: str) -> bool:
+    if not clave or not hash_guardado:
+        return False
+    try:
+        pwd_bytes = clave.encode("utf-8")[:72]
+        return bcrypt.checkpw(pwd_bytes, hash_guardado.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+# ======================================================================
+# Conexión a MySQL
+# ======================================================================
+def _get_env(name: str, default: str | None = None) -> str:
+    value = os.getenv(name, default)
+    if value is None or value == "":
+        raise RuntimeError(
+            f"Falta la variable de entorno '{name}'. "
+            f"Configúrala en Railway (Settings → Variables) apuntando al servicio MySQL."
+        )
+    return value
+
+
+def get_conexion():
+    return mysql.connector.connect(
+        host=_get_env("MYSQLHOST"),
+        port=int(_get_env("MYSQLPORT", "3306")),
+        database=_get_env("MYSQLDATABASE"),
+        user=_get_env("MYSQLUSER"),
+        password=_get_env("MYSQLPASSWORD"),
+        connection_timeout=10,
+    )
+
+
+# ======================================================================
+# Autenticación JWT (HU11)
+# ======================================================================
+JWT_ALG = "HS256"
+
+
+def crea_token(id_persona: int, id_rol: int) -> str:
+    payload = {
+        "sub": str(id_persona),
+        "rol": int(id_rol),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
+    }
+    return jwt.encode(payload, _get_env("JWT_SECRET"), algorithm=JWT_ALG)
+
+
+def requiere_rol(*roles_permitidos: int):
+    def verificador(authorization: str | None = Header(default=None)):
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Sesión requerida")
+        try:
+            datos = jwt.decode(
+                authorization[7:], _get_env("JWT_SECRET"), algorithms=[JWT_ALG]
+            )
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+        if datos.get("rol") not in roles_permitidos:
+            raise HTTPException(status_code=403, detail="No tiene permisos para esta acción")
+        return datos
+    return verificador
+
+
+def usuario_opcional(authorization: str | None = Header(default=None)):
+    """Devuelve los datos del token si vienen y son válidos; si no, None."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    try:
+        return jwt.decode(
+            authorization[7:], _get_env("JWT_SECRET"), algorithms=[JWT_ALG]
+        )
+    except jwt.PyJWTError:
+        return None
+
+
+# ======================================================================
+# Modelos Pydantic
+# ======================================================================
+class Login(BaseModel):
+    rut: int
+    clave: str = Field(min_length=1, max_length=72)
+    rol: int
+
+
+class personaEntrada(BaseModel):
+    rut: int
+    dv: str = Field(min_length=1, max_length=1)
+    nombrePersona: str
+    clave: str = Field(min_length=8, max_length=72)
+    fechaNac: date
+    calle: str
+    idComuna: int
+
+
+class personaCompara(BaseModel):
+    rut: int
+    dv: str = Field(min_length=1, max_length=1)
+    nombrePersona: str
+    fechaNac: date
+    calle: str
+    idComuna: int
+    numero: int
+    correo: str = Field(min_length=6, max_length=50)
+
+
+class formularioEntrada(BaseModel):
+    descripcion: str = Field(min_length=0, max_length=200)
+    fechaInicio: date
+    idPersona: int
+    idCesfam: int
+    idHospital: int
+    idEspecialidad: int
+    prioridad: str
+
+
+class accesoEntrada(BaseModel):
+    idCesfam: int
+    idHospital: int
+    idPersona: int
+    idRol: int
+
+
+# --- Reglas de validación para actualizar contacto (HU13) ---
+TEL_REGEX = re.compile(r"^9\d{8}$")
+CORREO_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CORREO_MAX = 50
+CALLE_MIN, CALLE_MAX = 3, 50
+MAX_TELEFONOS = 5
+MAX_CORREOS = 5
+
+
+# ======================================================================
+# Tipo de teléfono en la edición de contacto
+# ----------------------------------------------------------------------
+# TelefonoActualiza:
+#   numero -> 9XXXXXXXX
+#   tipo   -> 'P' (Personal) | 'E' (Emergencia)
+# El validator "before" en contactoActualiza acepta también strings
+# para no romper clientes que aún mandan ["912345678"].
+# ======================================================================
+class TelefonoActualiza(BaseModel):
+    numero: str
+    tipo: str = Field(default="P", pattern="^[PE]$")
+
+
+class contactoActualiza(BaseModel):
+    telefonos: list[TelefonoActualiza] | None = None
+    correos: list[str] | None = None
+    calle: str | None = None
+    idComuna: int | None = Field(default=None, gt=0)
+
+    @field_validator("telefonos", mode="before")
+    @classmethod
+    def valida_telefonos(cls, valor):
+        if valor is None:
+            return valor
+
+        limpios: list[dict] = []
+        vistos: set[str] = set()
+
+        for original in valor:
+            # Aceptamos dos formas por cada ítem:
+            #   "912345678"                        -> tipo 'P' por defecto
+            #   { "numero": "...", "tipo": "P"|"E" }
+            if isinstance(original, dict):
+                numero = original.get("numero", "")
+                tipo = (original.get("tipo") or "P").upper()
+            else:
+                numero = original
+                tipo = "P"
+
+            t = re.sub(r"[\s\-()]", "", str(numero))
+            if t.startswith("+56"):
+                t = t[3:]
+            elif t.startswith("56") and len(t) == 11:
+                t = t[2:]
+
+            if not TEL_REGEX.match(t):
+                raise ValueError(
+                    f"Teléfono inválido: '{numero}'. Debe tener 9 dígitos y empezar con 9"
+                )
+
+            if tipo not in ("P", "E"):
+                raise ValueError(
+                    f"Tipo de teléfono inválido: '{tipo}'. Debe ser 'P' o 'E'"
+                )
+
+            if t in vistos:
+                continue
+            vistos.add(t)
+            # Devolvemos dicts; Pydantic los convierte a TelefonoActualiza
+            limpios.append({"numero": t, "tipo": tipo})
+
+        if not 1 <= len(limpios) <= MAX_TELEFONOS:
+            raise ValueError(f"Debe haber entre 1 y {MAX_TELEFONOS} teléfonos")
+        return limpios
+
+    @field_validator("correos")
+    @classmethod
+    def valida_correos(cls, valor):
+        if valor is None:
+            return valor
+        limpios = []
+        for original in valor:
+            c = original.strip().lower()
+            if len(c) > CORREO_MAX or not CORREO_REGEX.match(c):
+                raise ValueError(
+                    f"Correo inválido: '{original}'. Formato esperado: nombre@dominio.cl (máx. {CORREO_MAX} caracteres)"
+                )
+            if c not in limpios:
+                limpios.append(c)
+        if not 1 <= len(limpios) <= MAX_CORREOS:
+            raise ValueError(f"Debe haber entre 1 y {MAX_CORREOS} correos")
+        return limpios
+
+    @field_validator("calle")
+    @classmethod
+    def valida_calle(cls, valor):
+        if valor is None:
+            return valor
+        calle = " ".join(valor.split())
+        if not CALLE_MIN <= len(calle) <= CALLE_MAX:
+            raise ValueError(f"La calle debe tener entre {CALLE_MIN} y {CALLE_MAX} caracteres")
+        return calle
+
+
+# ======================================================================
+# Endpoints
+# ======================================================================
+@app.get("/")
+def inicio():
+    return {"mensaje": "Bienvenido a la API de Lista de Espera"}
+
+
+@app.post("/login")
+def login(datos: Login):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT idPersona, clave FROM persona WHERE rut = %s",
+            (datos.rut,)
+        )
+        persona = cursor.fetchone()
+
+        if persona is None:
+            raise HTTPException(status_code=404, detail="Usuario no existe")
+
+        if not verifica_clave(datos.clave, persona["clave"]):
+            raise HTTPException(status_code=401, detail="Clave incorrecta")
+
+        query_acceso = """
+            SELECT
+                p.idPersona,
+                p.nombrePersona,
+                p.idComuna,
+                p.rut,
+                a.idRol,
+                a.idHospital,
+                a.idCesfam,
+                ce.nombreCesfam AS nombreCesfam,
+                h.nombreHospital AS nombreHospital
+            FROM persona p
+            LEFT JOIN acceso a
+                ON p.idPersona = a.idPersona
+                AND a.idRol = %s
+            LEFT JOIN cesfam   ce ON a.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON a.idHospital = h.idHospital
+            WHERE p.rut = %s
+            AND a.activo = %s
+        """
+        cursor.execute(query_acceso, (datos.rol, datos.rut, 'S'))
+        respuesta = cursor.fetchall()
+
+        if len(respuesta) != 0:
+            token = crea_token(respuesta[0]["idPersona"], datos.rol)
+            for fila in respuesta:
+                fila["token"] = token
+            return respuesta
+
+        raise HTTPException(status_code=403, detail="El usuario no posee acceso con ese rol")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en /login")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conexion is not None:
+            conexion.close()
+
+
+@app.post("/persona", status_code=201)
+def creaPersona(persona: personaEntrada):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT idPersona FROM persona WHERE rut = %s", (persona.rut,))
+        if cursor.fetchone():
+            return {"codigo": 0, "mensaje": "Ya existe un Usuario asignado a ese RUT"}
+
+        query = """
+            INSERT INTO persona
+                (rut, dv, calle, nombrePersona, clave, fechaNac, idComuna)
+            VALUES
+                (%s, %s, %s, %s, %s, %s, %s)
+        """
+        clave_hash = hash_clave(persona.clave)
+        valores = (
+            persona.rut, persona.dv, persona.calle,
+            persona.nombrePersona, clave_hash,
+            persona.fechaNac, persona.idComuna
+        )
+        cursor.execute(query, valores)
+        idPersona = cursor.lastrowid
+
+        query_acceso = """
+            INSERT INTO acceso
+                (Activo, idCesfam, idHospital, idPersona, idRol)
+            VALUES
+                (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query_acceso, ("S", 0, 0, idPersona, 3))
+
+        conexion.commit()
+        return {"codigo": 1, "mensaje": "Éxito para ingresar Persona y dar acceso de Usuario"}
+
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en /persona")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/persona")
+def obtienePersonas():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idPersona, rut, dv, nombrePersona, fechaNac, calle, idComuna "
+            "FROM persona ORDER BY nombrePersona"
+        )
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron personas")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /persona")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/rol")
+def obtieneRoles():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT idRol, nombreRol FROM rol ORDER BY idRol")
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron roles")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /rol")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.post("/formulario", status_code=201)
+def creaFormulario(
+    formulario: formularioEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(usuario_opcional),
+):
+    conexion = None
+    cursor = None
+    try:
+        try:
+            prioridad_bd = normaliza_prioridad_entrada(formulario.prioridad)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
+            (formulario.idEspecialidad,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="La especialidad no existe")
+        query = """
+            INSERT INTO formulario
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica, idEspecialidad)
+            VALUES
+                (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            formulario.descripcion, formulario.fechaInicio,
+            formulario.idPersona, formulario.idCesfam,
+            formulario.idHospital, srv.E_REGISTRADA, prioridad_bd,
+            formulario.idEspecialidad
+        )
+        cursor.execute(query, valores)
+        id_formulario = cursor.lastrowid
+        # HU07: el alta es el primer evento de la línea de tiempo
+        registra_historial(
+            cursor, id_formulario, None, srv.E_REGISTRADA,
+            _id_usuario(usuario), "Interconsulta registrada"
+        )
+        conexion.commit()
+        # HU15: aviso al paciente (fuera de la transacción, nunca bloquea el registro)
+        background.add_task(notifica_cambio_estado, id_formulario, ("paciente",))
+        return {
+            "codigo": 1,
+            "mensaje": "Éxito para ingresar Formulario",
+            "idFormulario": id_formulario,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en POST /formulario")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.post("/acceso", status_code=201)
+def creaAcceso(acceso: accesoEntrada, _=Depends(requiere_rol(4))):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            """
+            SELECT idPersona
+            FROM acceso
+            WHERE idPersona = %s
+              AND idRol = %s
+              AND idCesfam = %s
+              AND idHospital = %s
+            """,
+            (acceso.idPersona, acceso.idRol, acceso.idCesfam, acceso.idHospital)
+        )
+
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=409,
+                detail="Ese acceso ya existe para esta persona con ese rol y centro."
+            )
+
+        query = """
+            INSERT INTO acceso
+                (Activo, idCesfam, idHospital, idPersona, idRol)
+            VALUES
+                (%s, %s, %s, %s, %s)
+        """
+        valores = ('S', acceso.idCesfam, acceso.idHospital, acceso.idPersona, acceso.idRol)
+        cursor.execute(query, valores)
+        conexion.commit()
+        return {"codigo": 1, "mensaje": "Éxito para permitir Acceso"}
+
+    except HTTPException:
+        raise
+    except mysql.connector.IntegrityError as e:
+        if conexion:
+            conexion.rollback()
+        if getattr(e, "errno", None) == 1062:
+            raise HTTPException(
+                status_code=409,
+                detail="Ese acceso ya existe para esta persona con ese rol y centro."
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en POST /acceso")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/region")
+def obtieneRegiones():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT idRegion, nombreRegion FROM region")
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron regiones")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /region")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/especialidad")
+def obtieneEspecialidades():
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT idEspecialidad, nombreEspecialidad "
+            "FROM especialidad ORDER BY nombreEspecialidad"
+        )
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron especialidades")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /especialidad")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/comuna/{region}")
+def obtieneComunas(region: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        query = "SELECT idComuna, nombreComuna FROM comuna"
+        if region != 0:
+            query += " WHERE idRegion = %s"
+            cursor.execute(query, (region,))
+        else:
+            cursor.execute(query)
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron comunas para esta región")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /comuna/{region}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/hospital/{comuna}")
+def obtieneHospitales(comuna: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        query = "SELECT idHospital, nombreHospital, calle, idComuna FROM hospital"
+        if comuna != 0:
+            query += " WHERE idComuna = %s"
+            cursor.execute(query, (comuna,))
+        else:
+            cursor.execute(query)
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron hospitales para esta comuna")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /hospital/{comuna}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/cesfam/{comuna}")
+def obtieneCesfams(comuna: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        query = "SELECT idCesfam, nombreCesfam, calle FROM cesfam"
+        if comuna != 0:
+            query += " WHERE idComuna = %s"
+            cursor.execute(query, (comuna,))
+        else:
+            cursor.execute(query)
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron CESFAMs para esta comuna")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /cesfam/{comuna}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/contactos/{persona}")
+def obtieneDatosContacto(persona: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        query = """
+            SELECT
+                p.idPersona,
+                p.calle,
+                c.nombreComuna AS Comuna,
+                r.nombreRegion AS Region,
+                (SELECT GROUP_CONCAT(CONCAT(pc.contactos, ':', pc.tipo) SEPARATOR ';')
+                 FROM persona_contactos pc
+                 WHERE pc.idPersona = p.idPersona) AS Contactos,
+                (SELECT GROUP_CONCAT(pcor.correos SEPARATOR ';')
+                 FROM persona_correos pcor
+                 WHERE pcor.idPersona = p.idPersona) AS Correos
+            FROM persona p
+            LEFT JOIN comuna c ON p.idComuna = c.idComuna
+            LEFT JOIN region r ON c.idRegion = r.idRegion
+            WHERE p.idPersona = %s
+        """
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(query, (persona,))
+        respuesta = cursor.fetchall()
+        if len(respuesta) != 0:
+            return respuesta
+        raise HTTPException(status_code=404, detail="No se encontraron datos de contacto")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /contactos/{persona}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+def _lee_contacto(cursor, persona: int):
+    cursor.execute(
+        """
+        SELECT
+            p.idPersona,
+            p.calle,
+            c.nombreComuna AS Comuna,
+            r.nombreRegion AS Region,
+            (SELECT GROUP_CONCAT(CONCAT(pc.contactos, ':', pc.tipo) SEPARATOR ';')
+             FROM persona_contactos pc
+             WHERE pc.idPersona = p.idPersona) AS Contactos,
+            (SELECT GROUP_CONCAT(pcor.correos SEPARATOR ';')
+             FROM persona_correos pcor
+             WHERE pcor.idPersona = p.idPersona) AS Correos
+        FROM persona p
+        LEFT JOIN comuna c ON p.idComuna = c.idComuna
+        LEFT JOIN region r ON c.idRegion = r.idRegion
+        WHERE p.idPersona = %s
+        """,
+        (persona,)
+    )
+    return cursor.fetchall()
+
+
+@app.patch("/contactos/{persona}")
+def actualizaDatosContacto(persona: int, datos: contactoActualiza):
+    if (datos.telefonos is None and datos.correos is None
+            and datos.calle is None and datos.idComuna is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Debes enviar al menos un campo para actualizar"
+        )
+
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute("SELECT idPersona FROM persona WHERE idPersona = %s", (persona,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="No se encontró la persona")
+
+        if datos.idComuna is not None:
+            cursor.execute("SELECT idComuna FROM comuna WHERE idComuna = %s", (datos.idComuna,))
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=[{"loc": ["body", "idComuna"], "msg": "La comuna no existe"}]
+                )
+
+        campos = []
+        valores = []
+        if datos.calle is not None:
+            campos.append("calle = %s")
+            valores.append(datos.calle)
+        if datos.idComuna is not None:
+            campos.append("idComuna = %s")
+            valores.append(datos.idComuna)
+        if campos:
+            valores.append(persona)
+            cursor.execute(
+                "UPDATE persona SET " + ", ".join(campos) + " WHERE idPersona = %s",
+                tuple(valores)
+            )
+
+        # Teléfonos: reemplaza la lista completa conservando el tipo (P/E)
+        if datos.telefonos is not None:
+            cursor.execute("DELETE FROM persona_contactos WHERE idPersona = %s", (persona,))
+            cursor.executemany(
+                "INSERT INTO persona_contactos (contactos, idPersona, tipo) VALUES (%s, %s, %s)",
+                [(t.numero, persona, t.tipo) for t in datos.telefonos]
+            )
+
+        if datos.correos is not None:
+            cursor.execute("DELETE FROM persona_correos WHERE idPersona = %s", (persona,))
+            cursor.executemany(
+                "INSERT INTO persona_correos (correos, idPersona) VALUES (%s, %s)",
+                [(c, persona) for c in datos.correos]
+            )
+
+        conexion.commit()
+        return _lee_contacto(cursor, persona)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en PATCH /contactos/{persona}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/comparaDatos/{rut}/{dv}/{nombrePersona}/{fechaNac}/{calle}/{idComuna}/{numero}/{correo}")
+def comparaDatosPersona(
+    rut: int, dv: str, nombrePersona: str, fechaNac: date,
+    calle: str, idComuna: int, numero: int, correo: str
+):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        query = """
+            SELECT
+                p.rut,
+                p.dv,
+                p.nombrePersona,
+                p.fechaNac,
+                p.calle,
+                p.idComuna,
+                EXISTS (
+                    SELECT 1 FROM persona_contactos pc
+                    WHERE pc.idPersona = p.idPersona
+                    AND pc.contactos = %s
+                ) AS telefonoCoincide,
+                EXISTS (
+                    SELECT 1 FROM persona_correos pco
+                    WHERE pco.idPersona = p.idPersona
+                    AND pco.correos = %s
+                ) AS correoCoincide
+            FROM persona p
+            WHERE p.rut = %s
+        """
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(query, (numero, correo, rut))
+        respuesta = cursor.fetchone()
+
+        if respuesta is None:
+            raise HTTPException(status_code=404, detail="No se encontró una persona con el RUT indicado")
+
+        datosNoCoinciden = []
+
+        if str(respuesta["dv"]).strip().upper() != str(dv).strip().upper():
+            datosNoCoinciden.append("dígito verificador")
+        if respuesta["nombrePersona"].strip() != nombrePersona.strip():
+            datosNoCoinciden.append("nombre de la persona")
+        if respuesta["fechaNac"] != fechaNac:
+            datosNoCoinciden.append("fecha de nacimiento")
+        if respuesta["calle"].strip() != calle.strip():
+            datosNoCoinciden.append("calle")
+        if respuesta["idComuna"] != idComuna:
+            datosNoCoinciden.append("comuna")
+        if not respuesta["telefonoCoincide"]:
+            datosNoCoinciden.append("número de teléfono")
+        if not respuesta["correoCoincide"]:
+            datosNoCoinciden.append("correo electrónico")
+
+        if len(datosNoCoinciden) == 0:
+            return {"codigo": 1, "mensaje": "Todos los datos coinciden"}
+
+        return {
+            "codigo": 1,
+            "mensaje": "Los siguientes datos no coinciden: " + ", ".join(datosNoCoinciden)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /comparaDatos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/formulario/{persona}/{cesfam}/{hospital}/{estado}/{prioridad}")
+def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, prioridad: str):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        query = """
+            SELECT f.idFormulario, f.descripcion, f.fechaInicio,
+                   p.nombrePersona,
+                   ce.nombreCesfam AS nombreCesfam,
+                   h.nombreHospital,
+                   e.nombreEstado,
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
+            FROM formulario f
+            LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
+        """
+        cursor = conexion.cursor(dictionary=True)
+        condiciones = []
+        filtro = []
+
+        if persona != 0:
+            condiciones.append("f.idPersona = %s")
+            filtro.append(persona)
+        if cesfam != 0:
+            condiciones.append("f.idCesfam = %s")
+            filtro.append(cesfam)
+        if hospital != 0:
+            condiciones.append("f.idHospital = %s")
+            filtro.append(hospital)
+        if estado != 0:
+            condiciones.append("f.idEstado = %s")
+            filtro.append(estado)
+
+        prioridad_norm = (prioridad or "").strip().lower()
+        if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
+            if prioridad_norm not in _PRIORIDAD_A_BD:
+                raise HTTPException(
+                    status_code=400,
+                    detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
+                )
+            condiciones.append("f.prioridadClinica = %s")
+            filtro.append(_PRIORIDAD_A_BD[prioridad_norm])
+
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
+
+        cursor.execute(query, tuple(filtro))
+        filas = cursor.fetchall()
+
+        for fila in filas:
+            if 'prioridadClinica' in fila:
+                fila['prioridadClinica'] = normaliza_prioridad_salida(fila['prioridadClinica'])
+        return filas
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /formulario/{...}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/formulario/filtrar")
+def filtraFormularios(
+    persona: int = 0,
+    cesfam: int = 0,
+    hospital: int = 0,
+    especialidad: int = 0,
+    estados: str = "",
+    prioridad: str = "todas",
+    desde: date | None = None,
+    hasta: date | None = None,
+):
+    conexion = None
+    cursor = None
+    try:
+        lista_estados = []
+        if estados.strip():
+            try:
+                lista_estados = [int(e) for e in estados.split(",")]
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="estados debe ser una lista de números separados por coma, por ejemplo '1,2'"
+                )
+
+        if desde and hasta and desde > hasta:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha 'desde' no puede ser posterior a la fecha 'hasta'"
+            )
+
+        conexion = get_conexion()
+        query = """
+            SELECT f.idFormulario, f.descripcion, f.fechaInicio,
+                   f.idEstado, f.idCesfam, f.idHospital, f.idPersona,
+                   p.nombrePersona,
+                   ce.nombreCesfam AS nombreCesfam,
+                   h.nombreHospital,
+                   e.nombreEstado,
+                   f.prioridadClinica,
+                   f.idEspecialidad,
+                   esp.nombreEspecialidad
+            FROM formulario f
+            LEFT JOIN persona  p  ON f.idPersona  = p.idPersona
+            LEFT JOIN cesfam   ce ON f.idCesfam   = ce.idCesfam
+            LEFT JOIN hospital h  ON f.idHospital = h.idHospital
+            LEFT JOIN estados  e  ON f.idEstado   = e.idEstado
+            LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
+        """
+        cursor = conexion.cursor(dictionary=True)
+        condiciones = []
+        filtro = []
+
+        if persona != 0:
+            condiciones.append("f.idPersona = %s")
+            filtro.append(persona)
+        if cesfam != 0:
+            condiciones.append("f.idCesfam = %s")
+            filtro.append(cesfam)
+        if hospital != 0:
+            condiciones.append("f.idHospital = %s")
+            filtro.append(hospital)
+
+        if especialidad != 0:
+            condiciones.append("f.idEspecialidad = %s")
+            filtro.append(especialidad)
+
+        if lista_estados:
+            marcadores = ", ".join(["%s"] * len(lista_estados))
+            condiciones.append(f"f.idEstado IN ({marcadores})")
+            filtro.extend(lista_estados)
+
+        prioridad_norm = (prioridad or "").strip().lower()
+        if prioridad_norm and prioridad_norm not in ("todas", "0", "none"):
+            if prioridad_norm not in _PRIORIDAD_A_BD:
+                raise HTTPException(
+                    status_code=400,
+                    detail="prioridad debe ser 'alta', 'media', 'baja' o 'todas'"
+                )
+            condiciones.append("f.prioridadClinica = %s")
+            filtro.append(_PRIORIDAD_A_BD[prioridad_norm])
+
+        if desde:
+            condiciones.append("f.fechaInicio >= %s")
+            filtro.append(desde)
+        if hasta:
+            condiciones.append("f.fechaInicio <= %s")
+            filtro.append(hasta)
+
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
+
+        cursor.execute(query, tuple(filtro))
+        filas = cursor.fetchall()
+
+        for fila in filas:
+            if 'prioridadClinica' in fila:
+                fila['prioridadClinica'] = normaliza_prioridad_salida(fila['prioridadClinica'])
+        return filas
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /formulario/filtrar")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/Acceso/{rol}/{persona}/{cesfam}/{hospital}")
+def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int, _=Depends(requiere_rol(4))):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        query = """
+            SELECT
+                a.Activo AS activo,
+                a.idRol AS idRol,
+                a.idCesfam AS idCesfam,
+                a.idHospital AS idHospital,
+                CASE
+                    WHEN a.idRol = 3 THEN 'x'
+                    WHEN a.idCesfam != 0 THEN a.idCesfam
+                    ELSE a.idHospital
+                END AS idCentro,
+                CASE
+                    WHEN a.idRol = 3 THEN 'x'
+                    WHEN a.idCesfam != 0 THEN c.nombreCesfam
+                    ELSE h.nombreHospital
+                END AS nombreCentro,
+                CASE
+                    WHEN a.idRol = 3 THEN 'x'
+                    WHEN a.idCesfam != 0 THEN 'Cesfam'
+                    ELSE 'Hospital'
+                END AS tipoCentro,
+                a.idPersona,
+                p.nombrePersona
+            FROM acceso a
+            LEFT JOIN cesfam c ON a.idCesfam = c.idCesfam
+            LEFT JOIN hospital h ON a.idHospital = h.idHospital
+            INNER JOIN persona p ON a.idPersona = p.idPersona
+        """
+        condiciones = ["a.idRol != 3"]
+        filtro = []
+
+        if rol != 0:
+            condiciones.append("a.idRol = %s")
+            filtro.append(rol)
+        if persona != 0:
+            condiciones.append("a.idPersona = %s")
+            filtro.append(persona)
+        if cesfam != 0:
+            condiciones.append("a.idCesfam = %s")
+            filtro.append(cesfam)
+        if hospital != 0:
+            condiciones.append("a.idHospital = %s")
+            filtro.append(hospital)
+
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
+
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(query, tuple(filtro))
+        return cursor.fetchall()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /Acceso/{...}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.delete("/acceso/{persona}/{rol}/{cesfam}/{hospital}")
+def eliminaAcceso(persona: int, rol: int, cesfam: int, hospital: int, _=Depends(requiere_rol(4))):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor()
+
+        query = """
+            DELETE FROM acceso
+            WHERE idPersona = %s
+              AND idRol = %s
+              AND idCesfam = %s
+              AND idHospital = %s
+        """
+        cursor.execute(query, (persona, rol, cesfam, hospital))
+
+        if cursor.rowcount == 0:
+            conexion.rollback()
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontró el acceso para eliminar"
+            )
+
+        conexion.commit()
+        return {"codigo": 1, "mensaje": "Acceso eliminado correctamente"}
+
+    except HTTPException:
+        raise
+    except mysql.connector.Error as e:
+        if conexion:
+            conexion.rollback()
+        raise HTTPException(status_code=500, detail=f"Error de base de datos: {str(e)}")
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+# ======================================================================
+# Perfil de usuario (GET / PUT) con tipo de contacto P/E
+# ======================================================================
+_RE_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_RE_TELEFONO = re.compile(r"^\+?\d{8,15}$")
+
+
+class TelefonoEntrada(BaseModel):
+    numero: str
+    tipo: str = Field(default="P", pattern="^[PE]$")
+
+
+class perfilEdicion(BaseModel):
+    calle: str = Field(min_length=1, max_length=100)
+    idComuna: int
+    telefonos: list[TelefonoEntrada] = Field(default_factory=list)
+    correos: list[str] = Field(default_factory=list)
+
+
+def _normaliza_telefonos(lista: list[TelefonoEntrada]) -> list[tuple[str, str]]:
+    """Valida formato, elimina duplicados por número y normaliza el tipo."""
+    resultado: list[tuple[str, str]] = []
+    vistos: set[str] = set()
+    for t in lista:
+        valor = "".join(str(t.numero).split())
+        if not _RE_TELEFONO.match(valor):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Teléfono no válido: '{t.numero}'. Usa entre 8 y 15 dígitos, con + opcional al inicio."
+            )
+        if valor in vistos:
+            continue
+        vistos.add(valor)
+        tipo = (t.tipo or "P").upper()
+        if tipo not in ("P", "E"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo de contacto inválido: '{t.tipo}'. Debe ser 'P' o 'E'."
+            )
+        resultado.append((valor, tipo))
+    return resultado
+
+
+def _normaliza_correos(lista: list[str]) -> list[str]:
+    resultado: list[str] = []
+    vistos: set[str] = set()
+    for c in lista:
+        valor = str(c).strip()
+        if not _RE_CORREO.match(valor) or len(valor) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Correo no válido: '{c}'. Revisa el formato (máximo 50 caracteres)."
+            )
+        if valor.lower() not in vistos:
+            vistos.add(valor.lower())
+            resultado.append(valor)
+    return resultado
+
+
+def _sincroniza(cursor, tabla: str, columna: str, idPersona: int,
+                nuevos: list[str], ignora_mayusculas: bool = False):
+    """Sincroniza una tabla simple (sin columnas extra)."""
+    cursor.execute(f"SELECT {columna} AS valor FROM {tabla} WHERE idPersona = %s", (idPersona,))
+    existentes = [str(f["valor"]).strip() for f in cursor.fetchall()]
+
+    def clave(v: str) -> str:
+        return v.lower() if ignora_mayusculas else v
+
+    claves_nuevas = {clave(v) for v in nuevos}
+    claves_existentes = {clave(v) for v in existentes}
+
+    for valor in existentes:
+        if clave(valor) not in claves_nuevas:
+            cursor.execute(
+                f"DELETE FROM {tabla} WHERE idPersona = %s AND {columna} = %s",
+                (idPersona, valor)
+            )
+
+    for valor in nuevos:
+        if clave(valor) not in claves_existentes:
+            cursor.execute(
+                f"INSERT INTO {tabla} (idPersona, {columna}) VALUES (%s, %s)",
+                (idPersona, valor)
+            )
+
+
+def _sincroniza_telefonos(cursor, idPersona: int, nuevos: list[tuple[str, str]]):
+    """
+    Deja persona_contactos igual a 'nuevos' (lista de (numero, tipo)).
+    - Elimina los que ya no están.
+    - Inserta los nuevos.
+    - Actualiza el tipo de los existentes si cambió.
+    """
+    cursor.execute(
+        "SELECT contactos, tipo FROM persona_contactos WHERE idPersona = %s",
+        (idPersona,)
+    )
+    existentes = {str(f["contactos"]).strip(): str(f["tipo"]).strip() for f in cursor.fetchall()}
+
+    nuevos_dict = {num: tipo for num, tipo in nuevos}
+
+    for numero in existentes:
+        if numero not in nuevos_dict:
+            cursor.execute(
+                "DELETE FROM persona_contactos WHERE idPersona = %s AND contactos = %s",
+                (idPersona, numero)
+            )
+
+    for numero, tipo in nuevos_dict.items():
+        if numero not in existentes:
+            cursor.execute(
+                "INSERT INTO persona_contactos (idPersona, contactos, tipo) VALUES (%s, %s, %s)",
+                (idPersona, numero, tipo)
+            )
+        elif existentes[numero] != tipo:
+            cursor.execute(
+                "UPDATE persona_contactos SET tipo = %s WHERE idPersona = %s AND contactos = %s",
+                (tipo, idPersona, numero)
+            )
+
+
+@app.get("/persona/{idPersona}/perfil")
+def obtienePerfil(idPersona: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            """
+            SELECT
+                p.idPersona,
+                p.rut,
+                p.dv,
+                p.nombrePersona,
+                p.fechaNac,
+                p.calle,
+                p.idComuna,
+                c.idRegion
+            FROM persona p
+            LEFT JOIN comuna c ON p.idComuna = c.idComuna
+            WHERE p.idPersona = %s
+            """,
+            (idPersona,)
+        )
+        perfil = cursor.fetchone()
+        if perfil is None:
+            raise HTTPException(status_code=404, detail="Persona no encontrada")
+
+        cursor.execute(
+            "SELECT contactos AS numero, tipo FROM persona_contactos WHERE idPersona = %s",
+            (idPersona,)
+        )
+        perfil["telefonos"] = [
+            {"numero": str(f["numero"]).strip(), "tipo": str(f["tipo"]).strip()}
+            for f in cursor.fetchall()
+        ]
+
+        cursor.execute(
+            "SELECT correos AS valor FROM persona_correos WHERE idPersona = %s",
+            (idPersona,)
+        )
+        perfil["correos"] = [str(f["valor"]).strip() for f in cursor.fetchall()]
+
+        return perfil
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /persona/{idPersona}/perfil")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.put("/persona/{idPersona}/perfil")
+def actualizaPerfil(idPersona: int, datos: perfilEdicion):
+    conexion = None
+    cursor = None
+    try:
+        telefonos = _normaliza_telefonos(datos.telefonos)
+        correos = _normaliza_correos(datos.correos)
+        calle = datos.calle.strip()
+        if not calle:
+            raise HTTPException(status_code=400, detail="La calle no puede estar vacía")
+
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute("SELECT idPersona FROM persona WHERE idPersona = %s", (idPersona,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Persona no encontrada")
+
+        cursor.execute("SELECT idComuna FROM comuna WHERE idComuna = %s", (datos.idComuna,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=400, detail="La comuna indicada no existe")
+
+        cursor.execute(
+            "UPDATE persona SET calle = %s, idComuna = %s WHERE idPersona = %s",
+            (calle, datos.idComuna, idPersona)
+        )
+
+        _sincroniza_telefonos(cursor, idPersona, telefonos)
+        _sincroniza(cursor, "persona_correos", "correos", idPersona, correos, ignora_mayusculas=True)
+
+        conexion.commit()
+        return {"codigo": 1, "mensaje": "Información personal actualizada correctamente"}
+
+    except HTTPException:
+        if conexion:
+            conexion.rollback()
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en PUT /persona/{idPersona}/perfil")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+# ======================================================================
+# Documentos PDF adjuntos a una interconsulta
+# ======================================================================
+MAX_PDF_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@app.post("/formulario/{idFormulario}/documentos", status_code=201)
+def subeDocumento(idFormulario: int, archivo: UploadFile = File(...)):
+    conexion = None
+    cursor = None
+    try:
+        nombre = os.path.basename(archivo.filename or "").strip()
+        if not nombre.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+
+        contenido = archivo.file.read(MAX_PDF_BYTES + 1)
+        if len(contenido) == 0:
+            raise HTTPException(status_code=400, detail="El archivo está vacío")
+        if len(contenido) > MAX_PDF_BYTES:
+            raise HTTPException(status_code=400, detail="El archivo supera el máximo de 5 MB")
+        if not contenido.startswith(b"%PDF-"):
+            raise HTTPException(status_code=400, detail="El archivo no es un PDF válido")
+
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT idFormulario FROM formulario WHERE idFormulario = %s",
+            (idFormulario,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="La interconsulta no existe")
+
+        cursor.execute(
+            """
+            INSERT INTO formulario_documento
+                (idFormulario, nombreArchivo, tipoMime, tamanoBytes, contenido)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (idFormulario, nombre[:255], "application/pdf", len(contenido), contenido)
+        )
+        conexion.commit()
+        return {
+            "codigo": 1,
+            "mensaje": "Documento adjuntado correctamente",
+            "idDocumento": cursor.lastrowid,
+            "nombreArchivo": nombre[:255],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conexion:
+            conexion.rollback()
+        logger.exception("Error en POST /formulario/{idFormulario}/documentos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/formulario/{idFormulario}/documentos")
+def listaDocumentos(idFormulario: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT idFormulario FROM formulario WHERE idFormulario = %s",
+            (idFormulario,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="La interconsulta no existe")
+
+        cursor.execute(
+            """
+            SELECT idDocumento, nombreArchivo, tamanoBytes, fechaSubida
+            FROM formulario_documento
+            WHERE idFormulario = %s
+            ORDER BY fechaSubida DESC, idDocumento DESC
+            """,
+            (idFormulario,)
+        )
+        return cursor.fetchall()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /formulario/{idFormulario}/documentos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+@app.get("/documentos/{idDocumento}")
+def descargaDocumento(idDocumento: int):
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT nombreArchivo, tipoMime, contenido
+            FROM formulario_documento
+            WHERE idDocumento = %s
+            """,
+            (idDocumento,)
+        )
+        doc = cursor.fetchone()
+        if doc is None:
+            raise HTTPException(status_code=404, detail="El documento no existe")
+
+        nombre = quote(doc["nombreArchivo"])
+        return Response(
+            content=bytes(doc["contenido"]),
+            media_type=doc["tipoMime"],
+            headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /documentos/{idDocumento}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+# ======================================================================
+# ======================================================================
+#  SPRINT 3: flujo de revisión, trazabilidad, alertas, notificaciones
+#  y sincronización offline (HU03, 05A, 05B, 07, 09, 15, 16, 17, 19, 21, 23)
+# ======================================================================
+# ======================================================================
+
+ROL_ADMINISTRATIVO = 1   # CESFAM: registra, corrige, reenvía
+ROL_ESPECIALISTA = 2     # Hospital ("Externo"): revisa, acepta, devuelve
+ROL_PACIENTE = 3
+
+MAX_REGISTROS_SYNC = 100
+
+
+# ----------------------------------------------------------------------
+# Esquema (se aplica solo al arrancar, es idempotente)
+# ----------------------------------------------------------------------
+# Equivale a DATA/migraciones/001_sprint3.sql. Se hace aquí para que el
+# despliegue en Railway no dependa de ejecutar SQL a mano.
+_COLUMNAS_NUEVAS = [
+    ("formulario", "motivoDevolucion", "VARCHAR(300) NULL"),
+    ("formulario", "observacionDevolucion", "VARCHAR(500) NULL"),
+    ("formulario", "fechaDevolucion", "DATETIME NULL"),
+    ("formulario", "alertaRevisada", "TINYINT(1) NOT NULL DEFAULT 1"),
+    ("formulario", "causalCierre", "VARCHAR(30) NULL"),
+    ("formulario", "fechaCierre", "DATE NULL"),
+    ("formulario", "fechaCita", "DATETIME NULL"),
+    ("formulario", "centroCita", "VARCHAR(120) NULL"),
+    ("formulario", "uuidLocal", "VARCHAR(40) NULL"),
+    ("cesfam", "correo", "VARCHAR(100) NULL"),
+]
+
+_TABLAS_NUEVAS = [
+    """
+    CREATE TABLE IF NOT EXISTS formulario_historial (
+        idHistorial INT AUTO_INCREMENT PRIMARY KEY,
+        idFormulario INT NOT NULL,
+        idEstadoAnterior INT NULL,
+        idEstadoNuevo INT NOT NULL,
+        idPersona INT NULL,
+        fecha DATETIME NOT NULL,
+        comentario VARCHAR(500) NULL,
+        INDEX idx_hist_formulario (idFormulario)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS notificacion_correo (
+        idNotificacion INT AUTO_INCREMENT PRIMARY KEY,
+        idFormulario INT NOT NULL,
+        tipo VARCHAR(20) NOT NULL,
+        destinatario VARCHAR(100) NOT NULL,
+        asunto VARCHAR(200) NOT NULL,
+        cuerpo TEXT NOT NULL,
+        estadoEnvio VARCHAR(20) NOT NULL,
+        detalle VARCHAR(300) NULL,
+        fecha DATETIME NOT NULL,
+        INDEX idx_notif_formulario (idFormulario)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+]
+
+
+def asegura_esquema():
+    """Crea columnas/tablas/estados del Sprint 3 si faltan. Nunca detiene el arranque."""
+    if os.getenv("AUTO_MIGRAR", "1") == "0" or not os.getenv("MYSQLHOST"):
+        return
+    conexion = None
+    cursor = None
+    try:
+        conexion = get_conexion()
+        cursor = conexion.cursor(dictionary=True)
+        for tabla, columna, definicion in _COLUMNAS_NUEVAS:
+            try:
+                cursor.execute(f"SHOW COLUMNS FROM {tabla} LIKE %s", (columna,))
+                if cursor.fetchone() is None:
+                    cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+                    logger.info("Migración: %s.%s agregada", tabla, columna)
+            except Exception:
+                logger.exception("Migración: no se pudo agregar %s.%s", tabla, columna)
+        for ddl in _TABLAS_NUEVAS:
+            try:
+                cursor.execute(ddl)
+            except Exception:
+                logger.exception("Migración: no se pudo crear una tabla")
+        try:
+            cursor.execute(
+                "UPDATE estados SET nombreEstado = 'Tramitada' "
+                "WHERE idEstado = %s AND nombreEstado = 'Enviada'",
+                (srv.E_TRAMITADA,),
+            )
+            for id_estado in (srv.E_AGENDADA, srv.E_FINALIZADA):
+                cursor.execute("SELECT idEstado FROM estados WHERE idEstado = %s", (id_estado,))
+                if cursor.fetchone() is None:
+                    cursor.execute(
+                        "INSERT INTO estados (idEstado, nombreEstado) VALUES (%s, %s)",
+                        (id_estado, srv.NOMBRES_ESTADO[id_estado]),
+                    )
+        except Exception:
+            logger.exception("Migración: no se pudieron actualizar los estados")
+        try:
+            cursor.execute("CREATE UNIQUE INDEX uq_formulario_uuid ON formulario (uuidLocal)")
+        except Exception:
+            pass  # ya existe
+        conexion.commit()
+    except Exception:
+        logger.exception("No se pudo aplicar la migración del Sprint 3")
+    finally:
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
+
+
+app.add_event_handler("startup", asegura_esquema)
+
+
+# ----------------------------------------------------------------------
+# Utilidades comunes
+# ----------------------------------------------------------------------
+@contextmanager
+def conexion_db():
+    """Conexión + cursor; hace rollback ante cualquier error y siempre cierra."""
+    conexion = get_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    try:
+        yield conexion, cursor
+    except HTTPException:
+        conexion.rollback()
+        raise
+    except Exception as e:
+        conexion.rollback()
+        logger.exception("Error de base de datos")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        if conexion.is_connected():
+            conexion.close()
+
+
+def _ahora_utc() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _id_usuario(usuario) -> int | None:
+    try:
+        return int(usuario["sub"]) if usuario else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def registra_historial(cursor, id_formulario, estado_anterior, estado_nuevo,
+                       id_usuario, comentario=None):
+    cursor.execute(
+        """
+        INSERT INTO formulario_historial
+            (idFormulario, idEstadoAnterior, idEstadoNuevo, idPersona, fecha, comentario)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (id_formulario, estado_anterior, estado_nuevo, id_usuario,
+         _ahora_utc(), comentario[:500] if comentario else None),
+    )
+
+
+_SQL_FORMULARIO = """
+    SELECT f.idFormulario, f.descripcion, f.fechaInicio, f.idPersona, f.idCesfam,
+           f.idHospital, f.idEstado, f.prioridadClinica, f.idEspecialidad,
+           f.motivoDevolucion, f.observacionDevolucion, f.fechaDevolucion,
+           f.alertaRevisada, f.causalCierre, f.fechaCierre, f.fechaCita, f.centroCita,
+           p.nombrePersona,
+           ce.nombreCesfam AS nombreCesfam,
+           h.nombreHospital,
+           e.nombreEstado,
+           esp.nombreEspecialidad
+    FROM formulario f
+    LEFT JOIN persona  p   ON f.idPersona  = p.idPersona
+    LEFT JOIN cesfam   ce  ON f.idCesfam   = ce.idCesfam
+    LEFT JOIN hospital h   ON f.idHospital = h.idHospital
+    LEFT JOIN estados  e   ON f.idEstado   = e.idEstado
+    LEFT JOIN especialidad esp ON f.idEspecialidad = esp.idEspecialidad
+"""
+
+
+def _carga_formulario(cursor, id_formulario: int) -> dict:
+    cursor.execute(_SQL_FORMULARIO + " WHERE f.idFormulario = %s", (id_formulario,))
+    f = cursor.fetchone()
+    if f is None:
+        raise HTTPException(status_code=404, detail="La interconsulta no existe")
+    return f
+
+
+def _presenta_formulario(f: dict, rol: int | None = None) -> dict:
+    """Normaliza tipos para JSON y oculta datos de gestión interna al paciente."""
+    d = dict(f)
+    d["prioridadClinica"] = normaliza_prioridad_salida(d.get("prioridadClinica"))
+    d["fechaDevolucion"] = srv.iso_utc(d.get("fechaDevolucion"))
+    d["fechaCita"] = srv.iso_local(d.get("fechaCita"))
+    d["alertaRevisada"] = bool(d.get("alertaRevisada", 1))
+    if rol == ROL_PACIENTE:
+        for campo in ("motivoDevolucion", "observacionDevolucion", "fechaDevolucion"):
+            d[campo] = None
+    return d
+
+
+def _ids_centro(cursor, id_persona: int, rol: int, columna: str) -> set[int]:
+    assert columna in ("idHospital", "idCesfam")
+    cursor.execute(
+        f"SELECT {columna} AS centro FROM acceso "
+        "WHERE idPersona = %s AND idRol = %s AND activo = %s",
+        (id_persona, rol, "S"),
+    )
+    return {int(r["centro"]) for r in cursor.fetchall() if r["centro"]}
+
+
+def _verifica_alcance(cursor, usuario, f: dict):
+    """Cada rol solo opera sobre los casos de su propio establecimiento."""
+    rol = int(usuario["rol"])
+    persona = int(usuario["sub"])
+    if rol == ROL_ESPECIALISTA:
+        if int(f["idHospital"]) not in _ids_centro(cursor, persona, rol, "idHospital"):
+            raise HTTPException(status_code=403, detail="La interconsulta pertenece a otro hospital")
+    elif rol == ROL_ADMINISTRATIVO:
+        cesfams = _ids_centro(cursor, persona, rol, "idCesfam")
+        if cesfams and int(f["idCesfam"]) not in cesfams:
+            raise HTTPException(status_code=403, detail="La interconsulta pertenece a otro CESFAM")
+    elif rol == ROL_PACIENTE:
+        if int(f["idPersona"]) != persona:
+            raise HTTPException(status_code=403, detail="No tiene permisos para esta interconsulta")
+
+
+def _cambia_estado(cursor, f: dict, accion: str, usuario, comentario=None, campos=None) -> int:
+    """
+    Aplica una transición validada. El UPDATE incluye el estado de origen en el WHERE:
+    si otra persona cambió el caso entre medio, no se pisa y se responde 409.
+    """
+    try:
+        nuevo = srv.valida_transicion(accion, f["idEstado"])
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    sets = ["idEstado = %s"]
+    valores: list = [nuevo]
+    for columna, valor in (campos or {}).items():  # columnas fijas, definidas en este archivo
+        sets.append(f"{columna} = %s")
+        valores.append(valor)
+    valores += [f["idFormulario"], f["idEstado"]]
+    cursor.execute(
+        "UPDATE formulario SET " + ", ".join(sets) +
+        " WHERE idFormulario = %s AND idEstado = %s",
+        tuple(valores),
+    )
+    if cursor.rowcount != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="La interconsulta cambió de estado mientras se procesaba. Actualice e intente nuevamente.",
+        )
+    registra_historial(cursor, f["idFormulario"], f["idEstado"], nuevo,
+                       _id_usuario(usuario), comentario)
+    return nuevo
+
+
+# ----------------------------------------------------------------------
+# Notificaciones por correo (HU15, HU17, HU23)
+# ----------------------------------------------------------------------
+def _registra_correo(cursor, id_formulario, tipo, destinatario, asunto, cuerpo, estado, detalle):
+    cursor.execute(
+        """
+        INSERT INTO notificacion_correo
+            (idFormulario, tipo, destinatario, asunto, cuerpo, estadoEnvio, detalle, fecha)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (id_formulario, tipo, (destinatario or "")[:100], asunto[:200], cuerpo,
+         estado, (detalle or "")[:300], _ahora_utc()),
+    )
+
+
+def notifica_cambio_estado(id_formulario: int, destinos=("paciente",), causal: str | None = None):
+    """
+    Envía el correo que corresponde a la etapa actual del caso.
+    Se ejecuta DESPUÉS de confirmar la transacción (BackgroundTasks) y nunca
+    lanza: un fallo de correo queda registrado en `notificacion_correo`.
+    """
+    try:
+        with conexion_db() as (conexion, cursor):
+            f = _carga_formulario(cursor, id_formulario)
+            cita = None
+            if f.get("fechaCita") and f["idEstado"] == srv.E_AGENDADA:
+                valor = f["fechaCita"]
+                cita = valor if isinstance(valor, datetime) else datetime.fromisoformat(
+                    str(valor).replace(" ", "T")
+                )
+
+            if "paciente" in destinos:
+                cursor.execute(
+                    "SELECT correos FROM persona_correos WHERE idPersona = %s",
+                    (f["idPersona"],),
+                )
+                correos = [str(r["correos"]).strip() for r in cursor.fetchall()]
+                correos = [c for c in correos if srv.CORREO_REGEX.match(c)]
+                asunto, cuerpo = srv.correo_paciente(
+                    f["idEstado"], f["nombrePersona"] or "paciente", id_formulario,
+                    f["nombreEspecialidad"], f["nombreHospital"],
+                    cita=cita, centro_cita=f.get("centroCita"), causal=f.get("causalCierre"),
+                )
+                destinatario = correos[0] if correos else ""
+                estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
+                _registra_correo(cursor, id_formulario, "paciente", destinatario,
+                                 asunto, cuerpo, estado, detalle)
+
+            if "cesfam" in destinos:
+                try:
+                    cursor.execute(
+                        "SELECT correo FROM cesfam WHERE idCesfam = %s", (f["idCesfam"],)
+                    )
+                    fila = cursor.fetchone()
+                    destinatario = (fila or {}).get("correo") or ""
+                except Exception:
+                    destinatario = ""
+                destinatario = destinatario or os.getenv("CESFAM_CORREO_DEFAULT", "")
+                asunto, cuerpo = srv.correo_cesfam(
+                    f["idEstado"], id_formulario, f["nombreCesfam"], f["nombreHospital"]
+                )
+                estado, detalle = srv.enviar_correo(destinatario, asunto, cuerpo)
+                _registra_correo(cursor, id_formulario, "cesfam", destinatario,
+                                 asunto, cuerpo, estado, detalle)
+            conexion.commit()
+    except Exception:
+        logger.exception("No se pudo notificar el cambio de estado de #%s", id_formulario)
+
+
+# ----------------------------------------------------------------------
+# Modelos del Sprint 3
+# ----------------------------------------------------------------------
+class EdicionAdministrativa(BaseModel):
+    """
+    HU03 / HU05B: SOLO estos campos son editables. Cualquier otro
+    (paciente, CESFAM, fecha, estado...) se rechaza con 422.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    descripcion: str | None = Field(default=None, max_length=200)
+    prioridad: str | None = None
+    idEspecialidad: int | None = Field(default=None, gt=0)
+    idHospital: int | None = Field(default=None, gt=0)
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_no_vacia(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("El motivo de la derivación no puede quedar vacío")
+        return v
+
+
+class RevisionEspecialista(BaseModel):
+    accion: Literal["aceptar", "devolver"]
+    motivo: str | None = Field(default=None, max_length=300)
+    observaciones: str | None = Field(default=None, max_length=500)
+
+
+class CierreEntrada(BaseModel):
+    causal: str | None = None
+
+
+class CitaEntrada(BaseModel):
+    fecha: date
+    hora: str
+    centro: str | None = Field(default=None, max_length=120)
+
+
+class RegistroOffline(BaseModel):
+    uuidLocal: str = Field(min_length=8, max_length=40)
+    descripcion: str = Field(min_length=1, max_length=200)
+    fechaInicio: date
+    idPersona: int
+    idCesfam: int
+    idHospital: int
+    idEspecialidad: int
+    prioridad: str = "media"
+
+
+class SincronizacionEntrada(BaseModel):
+    registros: list[RegistroOffline] = Field(min_length=1, max_length=MAX_REGISTROS_SYNC)
+
+
+# ----------------------------------------------------------------------
+# Consulta de una interconsulta (soporte de HU02/05A/07)
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}")
+def obtieneFormulario(idFormulario: int, usuario=Depends(requiere_rol(1, 2, 3))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        return _presenta_formulario(f, int(usuario["rol"]))
+
+
+# ----------------------------------------------------------------------
+# HU05A: motivo de devolución
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/devolucion")
+def obtieneDevolucion(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] != srv.E_DEVUELTA:
+            raise HTTPException(status_code=409, detail="La interconsulta no está en estado Devuelta")
+        return {
+            "idFormulario": f["idFormulario"],
+            "estado": f["nombreEstado"],
+            "motivo": f["motivoDevolucion"],
+            "observaciones": f["observacionDevolucion"],
+            "fecha": srv.iso_utc(f["fechaDevolucion"]),
+            "hospital": f["nombreHospital"],
+        }
+
+
+# ----------------------------------------------------------------------
+# HU03 / HU05B: edición administrativa y reenvío
+# ----------------------------------------------------------------------
+def _aplica_correcciones(cursor, f: dict, datos: EdicionAdministrativa) -> dict:
+    """Valida y devuelve {columna: valor} con lo que realmente cambia."""
+    cambios: dict = {}
+    if datos.descripcion is not None:
+        cambios["descripcion"] = datos.descripcion
+    if datos.prioridad is not None:
+        try:
+            cambios["prioridadClinica"] = normaliza_prioridad_entrada(datos.prioridad)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if datos.idEspecialidad is not None:
+        cursor.execute("SELECT idEspecialidad FROM especialidad WHERE idEspecialidad = %s",
+                       (datos.idEspecialidad,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="La especialidad no existe")
+        cambios["idEspecialidad"] = datos.idEspecialidad
+    if datos.idHospital is not None:
+        cursor.execute("SELECT idHospital FROM hospital WHERE idHospital = %s",
+                       (datos.idHospital,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=422, detail="El hospital no existe")
+        cambios["idHospital"] = datos.idHospital
+    return cambios
+
+
+@app.patch("/formulario/{idFormulario}/administrativo")
+def modificaDatosAdministrativos(
+    idFormulario: int,
+    datos: EdicionAdministrativa,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    if all(v is None for v in (datos.descripcion, datos.prioridad,
+                               datos.idEspecialidad, datos.idHospital)):
+        raise HTTPException(status_code=400, detail="Debes enviar al menos un campo para actualizar")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] == srv.E_FINALIZADA:
+            raise HTTPException(status_code=409, detail="Una interconsulta finalizada no se puede modificar")
+        if (datos.idHospital is not None or datos.idEspecialidad is not None) and \
+                f["idEstado"] not in (srv.E_REGISTRADA, srv.E_DEVUELTA, srv.E_TRAMITADA):
+            raise HTTPException(
+                status_code=409,
+                detail="El hospital y la especialidad solo se pueden cambiar antes de que el hospital acepte el caso",
+            )
+        cambios = _aplica_correcciones(cursor, f, datos)
+        sets = ", ".join(f"{c} = %s" for c in cambios)
+        cursor.execute(
+            f"UPDATE formulario SET {sets} WHERE idFormulario = %s",
+            tuple(cambios.values()) + (idFormulario,),
+        )
+        conexion.commit()
+        return _presenta_formulario(_carga_formulario(cursor, idFormulario), ROL_ADMINISTRATIVO)
+
+
+@app.post("/formulario/{idFormulario}/reenviar")
+def reenviaInterconsulta(
+    idFormulario: int,
+    background: BackgroundTasks,
+    datos: EdicionAdministrativa | None = None,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    datos = datos or EdicionAdministrativa()
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if f["idEstado"] != srv.E_DEVUELTA:
+            raise HTTPException(status_code=409, detail="Solo se puede reenviar una interconsulta en estado Devuelta")
+        cambios = _aplica_correcciones(cursor, f, datos)
+        _cambia_estado(cursor, f, "reenviar", usuario,
+                       "Corregida y reenviada" if cambios else "Reenviada sin cambios", cambios)
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), ROL_ADMINISTRATIVO)
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",))
+    return {"codigo": 1, "mensaje": "Interconsulta reenviada (Tramitada)", "interconsulta": resultado}
+
+
+# ----------------------------------------------------------------------
+# HU23: bandeja del especialista y revisión
+# ----------------------------------------------------------------------
+_ORDEN_PRIORIDAD = {"alta": 0, "media": 1, "baja": 2}
+
+
+@app.get("/especialista/bandeja")
+def bandejaEspecialista(usuario=Depends(requiere_rol(ROL_ESPECIALISTA))):
+    with conexion_db() as (conexion, cursor):
+        hospitales = sorted(_ids_centro(cursor, int(usuario["sub"]), ROL_ESPECIALISTA, "idHospital"))
+        if not hospitales:
+            return []
+        marcadores = ", ".join(["%s"] * len(hospitales))
+        cursor.execute(
+            _SQL_FORMULARIO +
+            f" WHERE f.idEstado IN (%s, %s) AND f.idHospital IN ({marcadores})",
+            (srv.E_REGISTRADA, srv.E_TRAMITADA, *hospitales),
+        )
+        filas = [_presenta_formulario(f, ROL_ESPECIALISTA) for f in cursor.fetchall()]
+        # primero lo más urgente y, dentro de cada prioridad, lo más antiguo
+        filas.sort(key=lambda d: (_ORDEN_PRIORIDAD.get(d["prioridadClinica"], 3),
+                                  str(d["fechaInicio"]), d["idFormulario"]))
+        return filas
+
+
+@app.post("/formulario/{idFormulario}/revision")
+def revisaInterconsulta(
+    idFormulario: int,
+    datos: RevisionEspecialista,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ESPECIALISTA)),
+):
+    motivo = (datos.motivo or "").strip()
+    observaciones = (datos.observaciones or "").strip()
+    if datos.accion == "devolver" and not motivo:
+        raise HTTPException(status_code=400, detail="El motivo de devolución es obligatorio")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        if datos.accion == "aceptar":
+            _cambia_estado(cursor, f, "aceptar", usuario, "Aceptada por el hospital")
+            mensaje = "Interconsulta aceptada y en lista de espera"
+        else:
+            _cambia_estado(
+                cursor, f, "devolver", usuario, f"Devuelta: {motivo}",
+                {
+                    "motivoDevolucion": motivo,
+                    "observacionDevolucion": observaciones or None,
+                    "fechaDevolucion": _ahora_utc(),
+                    "alertaRevisada": 0,   # HU16: genera una alerta nueva para el CESFAM
+                },
+            )
+            mensaje = "Interconsulta devuelta al CESFAM de origen"
+        conexion.commit()
+        estado_nuevo = _carga_formulario(cursor, idFormulario)["idEstado"]
+    # HU23 (CESFAM) + HU15 (paciente)
+    background.add_task(notifica_cambio_estado, idFormulario, ("cesfam", "paciente"))
+    return {"codigo": 1, "mensaje": mensaje, "idEstado": estado_nuevo}
+
+
+# ----------------------------------------------------------------------
+# HU07: historial de estados
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/historial")
+def obtieneHistorial(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        cursor.execute(
+            """
+            SELECT hi.idHistorial, hi.fecha, hi.comentario,
+                   hi.idEstadoAnterior, ea.nombreEstado AS estadoAnterior,
+                   hi.idEstadoNuevo,    en.nombreEstado AS estadoNuevo,
+                   hi.idPersona, p.nombrePersona AS usuario
+            FROM formulario_historial hi
+            LEFT JOIN estados  ea ON hi.idEstadoAnterior = ea.idEstado
+            LEFT JOIN estados  en ON hi.idEstadoNuevo    = en.idEstado
+            LEFT JOIN persona  p  ON hi.idPersona        = p.idPersona
+            WHERE hi.idFormulario = %s
+            ORDER BY hi.fecha ASC, hi.idHistorial ASC
+            """,
+            (idFormulario,),
+        )
+        eventos = cursor.fetchall()
+        for e in eventos:
+            e["fecha"] = srv.iso_utc(e["fecha"])
+            e["usuario"] = e["usuario"] or "Sistema"
+        return eventos
+
+
+# ----------------------------------------------------------------------
+# HU09: cierre
+# ----------------------------------------------------------------------
+@app.post("/formulario/{idFormulario}/cierre")
+def cierraInterconsulta(
+    idFormulario: int,
+    datos: CierreEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO, ROL_ESPECIALISTA)),
+):
+    try:
+        causal = srv.normaliza_causal(datos.causal)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        _cambia_estado(
+            cursor, f, "cerrar", usuario, f"Cerrada. Causal: {causal}",
+            {"causalCierre": causal, "fechaCierre": date.today()},
+        )
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), int(usuario["rol"]))
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",), causal)
+    return {"codigo": 1, "mensaje": "Interconsulta finalizada", "interconsulta": resultado}
+
+
+# ----------------------------------------------------------------------
+# HU17: asignación de hora médica
+# ----------------------------------------------------------------------
+@app.post("/formulario/{idFormulario}/cita")
+def asignaCita(
+    idFormulario: int,
+    datos: CitaEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO, ROL_ESPECIALISTA)),
+):
+    try:
+        momento = srv.combina_fecha_hora(datos.fecha, datos.hora)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if momento.date() < date.today():
+        raise HTTPException(status_code=400, detail="La fecha de la cita no puede ser anterior a hoy")
+
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        centro = (datos.centro or "").strip() or f["nombreHospital"] or ""
+        _cambia_estado(
+            cursor, f, "agendar", usuario,
+            f"Hora asignada: {momento.strftime('%d-%m-%Y %H:%M')} en {centro}",
+            {"fechaCita": momento, "centroCita": centro[:120]},
+        )
+        conexion.commit()
+        resultado = _presenta_formulario(_carga_formulario(cursor, idFormulario), int(usuario["rol"]))
+    background.add_task(notifica_cambio_estado, idFormulario, ("paciente",))
+    return {"codigo": 1, "mensaje": "Hora médica asignada", "interconsulta": resultado}
+
+
+# ----------------------------------------------------------------------
+# HU16: centro de alertas de devoluciones
+# ----------------------------------------------------------------------
+def _filtro_cesfam(cursor, usuario) -> tuple[str, tuple]:
+    cesfams = sorted(_ids_centro(cursor, int(usuario["sub"]), ROL_ADMINISTRATIVO, "idCesfam"))
+    if not cesfams:
+        return "", ()
+    return " AND f.idCesfam IN (" + ", ".join(["%s"] * len(cesfams)) + ")", tuple(cesfams)
+
+
+@app.get("/alertas/devoluciones")
+def alertasDevoluciones(usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO))):
+    with conexion_db() as (conexion, cursor):
+        extra, params = _filtro_cesfam(cursor, usuario)
+        cursor.execute(
+            _SQL_FORMULARIO + " WHERE f.idEstado = %s" + extra +
+            " ORDER BY f.fechaDevolucion DESC, f.idFormulario DESC",
+            (srv.E_DEVUELTA, *params),
+        )
+        filas = cursor.fetchall()
+        items = [
+            {
+                "idFormulario": f["idFormulario"],
+                "nombrePersona": f["nombrePersona"],
+                "nombreEspecialidad": f["nombreEspecialidad"],
+                "nombreHospital": f["nombreHospital"],
+                "motivo": f["motivoDevolucion"],
+                "fecha": srv.iso_utc(f["fechaDevolucion"]),
+                "revisada": bool(f["alertaRevisada"]),
+            }
+            for f in filas[:50]
+        ]
+        return {
+            "pendientes": len(filas),                                   # devueltas sin gestionar
+            "sinRevisar": sum(1 for f in filas if not f["alertaRevisada"]),
+            "items": items,
+        }
+
+
+@app.post("/alertas/devoluciones/revisar")
+def marcaAlertasRevisadas(usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO))):
+    with conexion_db() as (conexion, cursor):
+        extra, params = _filtro_cesfam(cursor, usuario)
+        cursor.execute(
+            "UPDATE formulario SET alertaRevisada = 1 "
+            "WHERE idEstado = %s AND alertaRevisada = 0" + extra.replace("f.", ""),
+            (srv.E_DEVUELTA, *params),
+        )
+        marcadas = cursor.rowcount
+        conexion.commit()
+        return {"codigo": 1, "marcadas": marcadas}
+
+
+# ----------------------------------------------------------------------
+# HU21: sincronización de registros creados sin conexión
+# ----------------------------------------------------------------------
+def _inserta_registro_offline(conexion, cursor, r: RegistroOffline, usuario, cesfams: set[int]) -> dict:
+    cursor.execute("SELECT idFormulario FROM formulario WHERE uuidLocal = %s", (r.uuidLocal,))
+    existente = cursor.fetchone()
+    if existente:  # reintento de un envío que ya se había guardado: idempotente
+        return {"uuidLocal": r.uuidLocal, "estado": "sincronizado",
+                "idFormulario": existente["idFormulario"], "duplicado": True}
+
+    try:
+        prioridad = normaliza_prioridad_entrada(r.prioridad)
+    except ValueError as e:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": str(e)}
+    if not r.descripcion.strip():
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": "El motivo de la derivación es obligatorio"}
+    if cesfams and r.idCesfam not in cesfams:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": "El CESFAM no corresponde a su acceso"}
+    for tabla, columna, valor, nombre in (
+        ("persona", "idPersona", r.idPersona, "El paciente"),
+        ("especialidad", "idEspecialidad", r.idEspecialidad, "La especialidad"),
+        ("hospital", "idHospital", r.idHospital, "El hospital"),
+        ("cesfam", "idCesfam", r.idCesfam, "El CESFAM"),
+    ):
+        cursor.execute(f"SELECT {columna} FROM {tabla} WHERE {columna} = %s", (valor,))
+        if cursor.fetchone() is None:
+            return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": f"{nombre} no existe"}
+
+    fecha = min(r.fechaInicio, date.today())
+    try:
+        cursor.execute(
+            """
+            INSERT INTO formulario
+                (descripcion, fechaInicio, idPersona, idCesfam, idHospital,
+                 idEstado, prioridadClinica, idEspecialidad, uuidLocal)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (r.descripcion.strip(), fecha, r.idPersona, r.idCesfam, r.idHospital,
+             srv.E_REGISTRADA, prioridad, r.idEspecialidad, r.uuidLocal),
+        )
+    except Exception:
+        # carrera: otro proceso insertó el mismo uuid entre el SELECT y el INSERT
+        conexion.rollback()
+        cursor.execute("SELECT idFormulario FROM formulario WHERE uuidLocal = %s", (r.uuidLocal,))
+        existente = cursor.fetchone()
+        if existente:
+            return {"uuidLocal": r.uuidLocal, "estado": "sincronizado",
+                    "idFormulario": existente["idFormulario"], "duplicado": True}
+        raise
+    id_formulario = cursor.lastrowid
+    registra_historial(cursor, id_formulario, None, srv.E_REGISTRADA,
+                       _id_usuario(usuario), "Registrada sin conexión y sincronizada")
+    conexion.commit()
+    return {"uuidLocal": r.uuidLocal, "estado": "sincronizado", "idFormulario": id_formulario}
+
+
+@app.post("/sincronizar")
+def sincronizaRegistros(
+    datos: SincronizacionEntrada,
+    background: BackgroundTasks,
+    usuario=Depends(requiere_rol(ROL_ADMINISTRATIVO)),
+):
+    resultados = []
+    with conexion_db() as (conexion, cursor):
+        cesfams = _ids_centro(cursor, int(usuario["sub"]), ROL_ADMINISTRATIVO, "idCesfam")
+        for registro in datos.registros:
+            try:
+                res = _inserta_registro_offline(conexion, cursor, registro, usuario, cesfams)
+            except Exception as e:  # un registro con problemas no debe bloquear a los demás
+                conexion.rollback()
+                logger.exception("Error sincronizando %s", registro.uuidLocal)
+                res = {"uuidLocal": registro.uuidLocal, "estado": "error", "detalle": str(e)[:200]}
+            resultados.append(res)
+            if res["estado"] == "sincronizado" and not res.get("duplicado"):
+                background.add_task(notifica_cambio_estado, res["idFormulario"], ("paciente",))
+    ok = sum(1 for r in resultados if r["estado"] == "sincronizado")
+    return {"codigo": 1, "sincronizados": ok, "fallidos": len(resultados) - ok, "resultados": resultados}
+
+
+# ----------------------------------------------------------------------
+# Bitácora de correos de una interconsulta (trazabilidad de HU15/HU17/HU23)
+# ----------------------------------------------------------------------
+@app.get("/formulario/{idFormulario}/notificaciones")
+def obtieneNotificaciones(idFormulario: int, usuario=Depends(requiere_rol(1, 2))):
+    with conexion_db() as (conexion, cursor):
+        f = _carga_formulario(cursor, idFormulario)
+        _verifica_alcance(cursor, usuario, f)
+        cursor.execute(
+            """
+            SELECT idNotificacion, tipo, destinatario, asunto, estadoEnvio, detalle, fecha
+            FROM notificacion_correo
+            WHERE idFormulario = %s
+            ORDER BY fecha ASC, idNotificacion ASC
+            """,
+            (idFormulario,),
+        )
+        filas = cursor.fetchall()
+        for fila in filas:
+            fila["fecha"] = srv.iso_utc(fila["fecha"])
+        return filas
