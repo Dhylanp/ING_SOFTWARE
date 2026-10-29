@@ -168,6 +168,16 @@ class personaEntrada(BaseModel):
     calle: str
     idComuna: int
 
+    @field_validator("fechaNac")
+    @classmethod
+    def validar_fecha_nac(cls, v: date) -> date:
+        hoy = datetime.now(timezone(timedelta(hours=-3))).date()  # hora de Chile (aprox.)
+        if v > hoy:
+            raise ValueError("La fecha de nacimiento no puede ser posterior a hoy")
+        if v.year < 1900:
+            raise ValueError("La fecha de nacimiento no puede ser anterior a 1900")
+        return v
+
 
 class personaCompara(BaseModel):
     rut: int
