@@ -182,6 +182,16 @@ const SignUp = () => {
     return `${anio}-${mes}-${dia}`;
   };
 
+  // BUG-01: la fecha de nacimiento no puede ser posterior a hoy.
+  // Compara año, mes y día (antes solo se comparaba el año).
+  // Recibe la fecha ya convertida a formato aaaa-mm-dd.
+  const esFechaFutura = (fechaISO) => {
+    const hoy = new Date();
+    const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+    // Las fechas aaaa-mm-dd con ceros a la izquierda se comparan bien como texto
+    return fechaISO > hoyISO;
+  };
+
   // ---------------------------------------------------------------
   // Auto-login tras crear la cuenta
   // El backend NO devuelve token: devuelve un array de accesos.
@@ -271,6 +281,15 @@ const SignUp = () => {
         icon: 'error',
         title: 'Fecha incorrecta',
         text: 'Ingrese la fecha en formato dd/mm/aaaa.'
+      });
+      return;
+    }
+
+    if (esFechaFutura(fechaConvertida)) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Fecha incorrecta',
+        text: 'La fecha de nacimiento no puede ser posterior a hoy.'
       });
       return;
     }
