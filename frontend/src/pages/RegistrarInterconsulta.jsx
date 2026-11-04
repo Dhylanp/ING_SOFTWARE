@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import { avisos } from '../lib/avisos';
 import { useAuth } from '../context/AuthContext';
@@ -338,7 +339,9 @@ export default function RegistrarInterconsulta() {
     return (
         <div style={{ width: '100%', maxWidth: '900px', margin: '40px auto', padding: '20px', boxSizing: 'border-box' }}>
 
-            <h2>Registrar Interconsulta (Atención Primaria)</h2>
+            <Link to="/interconsultas">← Volver al inicio</Link>
+
+            <h2 style={{ marginTop: '16px' }}>Registrar Interconsulta (Atención Primaria)</h2>
             <p style={{ color: 'var(--text-muted)' }}>Ingrese los datos básicos para tramitar la derivación del paciente.</p>
 
             <form onSubmit={handleSubmit} noValidate>
