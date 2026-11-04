@@ -225,14 +225,43 @@ class personaCompara(BaseModel):
     correo: str = Field(min_length=6, max_length=50)
 
 
+def hoy_chile() -> date:
+    return datetime.now(timezone(timedelta(hours=-3))).date()  # hora de Chile (aprox.)
+
+
+def error_fecha_inicio(v: date) -> str | None:
+    """Mensaje de error si la fecha de inicio no es válida; None si está bien."""
+    if v > hoy_chile():
+        return "La fecha de inicio no puede ser posterior a hoy"
+    if v.year < 2000:
+        return "La fecha de inicio no puede ser anterior al año 2000"
+    return None
+
+
 class formularioEntrada(BaseModel):
-    descripcion: str = Field(min_length=0, max_length=200)
+    descripcion: str = Field(min_length=1, max_length=200)
     fechaInicio: date
     idPersona: int
     idCesfam: int
     idHospital: int
     idEspecialidad: int
     prioridad: str
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_no_vacia(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("La descripción no puede estar vacía")
+        return v
+
+    @field_validator("fechaInicio")
+    @classmethod
+    def validar_fecha_inicio(cls, v: date) -> date:
+        msg = error_fecha_inicio(v)
+        if msg:
+            raise ValueError(msg)
+        return v
 
 
 class accesoEntrada(BaseModel):
@@ -2403,7 +2432,10 @@ def _inserta_registro_offline(conexion, cursor, r: RegistroOffline, usuario, ces
         if cursor.fetchone() is None:
             return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": f"{nombre} no existe"}
 
-    fecha = min(r.fechaInicio, date.today())
+    msg_fecha = error_fecha_inicio(r.fechaInicio)
+    if msg_fecha:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": msg_fecha}
+    fecha = r.fechaInicio
     try:
         cursor.execute(
             """
