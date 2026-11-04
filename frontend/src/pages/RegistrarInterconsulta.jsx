@@ -15,6 +15,18 @@ const formularioVacio = {
     descripcion: '',
 };
 
+// BUG-07: el borrador se guarda en este navegador mientras el usuario escribe
+const claveBorrador = (usuario) => `borrador-interconsulta-${usuario?.idPersona ?? 'anonimo'}`;
+
+const leerBorrador = (clave) => {
+    try {
+        const guardado = JSON.parse(localStorage.getItem(clave));
+        return guardado && typeof guardado === 'object' ? guardado : null;
+    } catch {
+        return null;
+    }
+};
+
 // borde rojo cuando el campo tiene un error
 const estiloCampo = (hayError) => ({
     width: '100%',
@@ -27,16 +39,32 @@ const estiloMensaje = { display: 'block', marginTop: '4px' };
 export default function RegistrarInterconsulta() {
     const { usuario } = useAuth();
 
-    const [formData, setFormData] = useState(formularioVacio);
+    const CLAVE_BORRADOR = claveBorrador(usuario);
+    const [formData, setFormData] = useState(
+        () => ({ ...formularioVacio, ...(leerBorrador(CLAVE_BORRADOR)?.formData || {}) })
+    );
     const [errores, setErrores] = useState({});
     const [personas, setPersonas] = useState([]);
     const [hospitales, setHospitales] = useState([]);
     const [especialidades, setEspecialidades] = useState([]);
     const [cargandoEspecialidades, setCargandoEspecialidades] = useState(false);
     const [cargandoHospitales, setCargandoHospitales] = useState(false);
-    const [busquedaHospital, setBusquedaHospital] = useState('');
+    const [busquedaHospital, setBusquedaHospital] = useState(
+        () => leerBorrador(CLAVE_BORRADOR)?.busquedaHospital || ''
+    );
     const [listaAbierta, setListaAbierta] = useState(false);
     const [listaRutAbierta, setListaRutAbierta] = useState(false);
+
+    // guarda el borrador al escribir; si el formulario queda vacío (por ejemplo tras guardar) lo borra
+    useEffect(() => {
+        try {
+            const vacio = JSON.stringify(formData) === JSON.stringify(formularioVacio) && !busquedaHospital;
+            if (vacio) localStorage.removeItem(CLAVE_BORRADOR);
+            else localStorage.setItem(CLAVE_BORRADOR, JSON.stringify({ formData, busquedaHospital }));
+        } catch {
+            // sin almacenamiento disponible: el formulario funciona igual, solo sin borrador
+        }
+    }, [formData, busquedaHospital, CLAVE_BORRADOR]);
 
     // CESFAM del médico: salen de los accesos con rol 1 que trae la sesión
     const cesfamsMedico = (usuario?.accesos || []).filter(

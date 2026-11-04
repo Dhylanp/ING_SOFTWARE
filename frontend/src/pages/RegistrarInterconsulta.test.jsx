@@ -156,4 +156,20 @@ describe('RegistrarInterconsulta (HU19)', () => {
     expect(campo).toHaveValue('12345678-5')
     expect(screen.getByText('Ana Pérez')).toBeInTheDocument()
   })
+
+  test('conserva lo escrito si la página se recarga (BUG-07)', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    mockApi(catalogos)
+    const primera = renderPagina(<RegistrarInterconsulta />)
+    await screen.findByRole('button', { name: 'Guardar y emitir interconsulta' })
+    await user.type(primera.container.querySelector('textarea[name=descripcion]'), 'Dolor torácico')
+
+    // Act: se "recarga" la página
+    primera.unmount()
+    const segunda = renderPagina(<RegistrarInterconsulta />)
+
+    // Assert
+    expect(segunda.container.querySelector('textarea[name=descripcion]')).toHaveValue('Dolor torácico')
+  })
 })
