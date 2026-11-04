@@ -31,6 +31,12 @@ describe('RegistrarInterconsulta (HU19)', () => {
     await borrarAlmacenLocal()
   })
 
+  test('muestra el botón para volver al inicio (BUG-08)', async () => {
+    mockApi(catalogos)
+    renderPagina(<RegistrarInterconsulta />)
+    expect(await screen.findByRole('link', { name: /Volver al inicio/ })).toHaveAttribute('href', '/interconsultas')
+  })
+
   test('sin campos obligatorios no envía y avisa "Campos incompletos"', async () => {
     // Arrange
     const user = userEvent.setup()

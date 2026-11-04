@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import TablaInterconsultas from '../components/TablaInterconsultas';
 import PendientesLocales from '../components/PendientesLocales';
 import { useAuth } from '../context/AuthContext';
@@ -65,6 +66,7 @@ export default function ListadoInterconsultas() {
 
   return (
     <div style={{ maxWidth: '1400px', margin: '40px auto', padding: '20px' }}>
+      <Link to="/interconsultas" style={{ display: 'inline-block', marginBottom: '16px' }}>← Volver al inicio</Link>
 
       {tieneRol(1) && <PendientesLocales />}
 
