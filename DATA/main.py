@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, BackgroundTasks
 import mysql.connector
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from contextlib import contextmanager
 from typing import Literal
 from datetime import date, datetime, timedelta, timezone
@@ -159,14 +159,39 @@ class Login(BaseModel):
     rol: int
 
 
+def dv_correcto(rut: int, dv: str) -> bool:
+    """Dígito verificador del RUT chileno (módulo 11)."""
+    suma, mult = 0, 2
+    for d in reversed(str(rut)):
+        suma += int(d) * mult
+        mult = 2 if mult == 7 else mult + 1
+    resto = 11 - (suma % 11)
+    esperado = "0" if resto == 11 else "K" if resto == 10 else str(resto)
+    return dv.upper() == esperado
+
+
 class personaEntrada(BaseModel):
-    rut: int
+    rut: int = Field(gt=0, le=99999999)
     dv: str = Field(min_length=1, max_length=1)
-    nombrePersona: str
+    nombrePersona: str = Field(min_length=1, max_length=50)
     clave: str = Field(min_length=8, max_length=72)
     fechaNac: date
-    calle: str
+    calle: str = Field(min_length=1, max_length=50)
     idComuna: int
+
+    @field_validator("nombrePersona", "calle")
+    @classmethod
+    def texto_no_vacio(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("El campo no puede estar vacío")
+        return v
+
+    @model_validator(mode="after")
+    def validar_dv(self):
+        if not dv_correcto(self.rut, self.dv):
+            raise ValueError("El dígito verificador no corresponde al RUT")
+        return self
 
     @field_validator("fechaNac")
     @classmethod
@@ -391,7 +416,7 @@ def creaPersona(persona: personaEntrada):
         cursor = conexion.cursor(dictionary=True)
         cursor.execute("SELECT idPersona FROM persona WHERE rut = %s", (persona.rut,))
         if cursor.fetchone():
-            return {"codigo": 0, "mensaje": "Ya existe un Usuario asignado a ese RUT"}
+            raise HTTPException(status_code=409, detail="Ya existe un Usuario asignado a ese RUT")
 
         query = """
             INSERT INTO persona
@@ -419,6 +444,8 @@ def creaPersona(persona: personaEntrada):
         conexion.commit()
         return {"codigo": 1, "mensaje": "Éxito para ingresar Persona y dar acceso de Usuario"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         if conexion:
             conexion.rollback()
