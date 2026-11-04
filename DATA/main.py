@@ -527,7 +527,7 @@ def obtieneRoles():
 def creaFormulario(
     formulario: formularioEntrada,
     background: BackgroundTasks,
-    usuario=Depends(usuario_opcional),
+    usuario=Depends(requiere_rol(1)),  # 1 = ROL_ADMINISTRATIVO (se define más abajo)
 ):
     conexion = None
     cursor = None
