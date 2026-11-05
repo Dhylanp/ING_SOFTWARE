@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import LoadingOverlay from '../components/LoadingOverlay';
 
-import { API_URL } from '../api/axios';
+const API_URL = 'https://ingsoftware-production-4899.up.railway.app';
 
 // ---------------------------------------------------------------
 // Helper: convierte cualquier respuesta de error en texto legible
