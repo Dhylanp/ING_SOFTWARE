@@ -4,7 +4,7 @@ import axios from 'axios';
 // La URL del backend se puede cambiar con VITE_API_URL (archivo .env) sin tocar el código.
 export const API_URL =
   import.meta.env?.VITE_API_URL ||
-  'https://ingsoftware-production-4899.up.railway.app';
+  'https://web-production-a2111.up.railway.app';
 
 const api = axios.create({
   baseURL: API_URL,
