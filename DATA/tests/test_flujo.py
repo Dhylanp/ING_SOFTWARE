@@ -543,9 +543,10 @@ class SincronizacionTest(BaseFlujo):  # HU21
         res = self.sincroniza(self.registro("uuid-0008-hhhh", idCesfam=2))
         self.assertEqual(res["resultados"][0]["estado"], "error")
 
-    def test_fecha_futura_se_limita_a_hoy(self):
+    def test_fecha_futura_se_rechaza(self):
         res = self.sincroniza(self.registro("uuid-0009-iiii", fechaInicio=date.today() + timedelta(days=30)))
-        self.assertEqual(self.fila(res["resultados"][0]["idFormulario"])["fechaInicio"], date.today().isoformat())
+        self.assertEqual(res["resultados"][0]["estado"], "error")
+        self.assertIn("posterior a hoy", res["resultados"][0]["detalle"])
 
     def test_modelo_rechaza_lotes_vacios_o_enormes(self):
         with self.assertRaises(Exception):
