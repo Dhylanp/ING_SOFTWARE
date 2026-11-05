@@ -320,13 +320,13 @@ const SignUp = () => {
         data = null;
       }
 
-      // Caso: RUT ya registrado (backend responde 201 con codigo: 0)
-      if (data && data.codigo === 0) {
+      // Caso: RUT ya registrado (409; versiones antiguas respondían 201 con codigo: 0)
+      if (response.status === 409 || (data && data.codigo === 0)) {
         setLoadingSubmit(false);
         Swal.fire({
           icon: 'warning',
           title: 'RUT ya registrado',
-          text: data.mensaje || 'Ya existe un Usuario asignado a ese RUT.'
+          text: data?.detail || data?.mensaje || 'Ya existe un Usuario asignado a ese RUT.'
         });
         return;
       }

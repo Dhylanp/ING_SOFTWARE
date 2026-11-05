@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, BackgroundTasks
 import mysql.connector
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from contextlib import contextmanager
 from typing import Literal
 from datetime import date, datetime, timedelta, timezone
@@ -96,6 +96,16 @@ def _get_env(name: str, default: str | None = None) -> str:
     return value
 
 
+ERROR_INTERNO = "Error interno del servidor"  # nunca se devuelve el texto de MySQL al cliente
+
+
+def existe_id(cursor, tabla: str, columna: str, valor: int) -> bool:
+    """True si la fila existe. tabla y columna son constantes internas, nunca datos del usuario."""
+    assert tabla in {"persona", "comuna", "cesfam", "hospital", "especialidad"}
+    cursor.execute(f"SELECT 1 FROM {tabla} WHERE {columna} = %s", (valor,))
+    return cursor.fetchone() is not None
+
+
 def get_conexion():
     return mysql.connector.connect(
         host=_get_env("MYSQLHOST"),
@@ -159,14 +169,39 @@ class Login(BaseModel):
     rol: int
 
 
+def dv_correcto(rut: int, dv: str) -> bool:
+    """Dígito verificador del RUT chileno (módulo 11)."""
+    suma, mult = 0, 2
+    for d in reversed(str(rut)):
+        suma += int(d) * mult
+        mult = 2 if mult == 7 else mult + 1
+    resto = 11 - (suma % 11)
+    esperado = "0" if resto == 11 else "K" if resto == 10 else str(resto)
+    return dv.upper() == esperado
+
+
 class personaEntrada(BaseModel):
-    rut: int
+    rut: int = Field(gt=0, le=99999999)
     dv: str = Field(min_length=1, max_length=1)
-    nombrePersona: str
+    nombrePersona: str = Field(min_length=1, max_length=50)
     clave: str = Field(min_length=8, max_length=72)
     fechaNac: date
-    calle: str
+    calle: str = Field(min_length=1, max_length=50)
     idComuna: int
+
+    @field_validator("nombrePersona", "calle")
+    @classmethod
+    def texto_no_vacio(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("El campo no puede estar vacío")
+        return v
+
+    @model_validator(mode="after")
+    def validar_dv(self):
+        if not dv_correcto(self.rut, self.dv):
+            raise ValueError("El dígito verificador no corresponde al RUT")
+        return self
 
     @field_validator("fechaNac")
     @classmethod
@@ -190,14 +225,43 @@ class personaCompara(BaseModel):
     correo: str = Field(min_length=6, max_length=50)
 
 
+def hoy_chile() -> date:
+    return datetime.now(timezone(timedelta(hours=-3))).date()  # hora de Chile (aprox.)
+
+
+def error_fecha_inicio(v: date) -> str | None:
+    """Mensaje de error si la fecha de inicio no es válida; None si está bien."""
+    if v > hoy_chile():
+        return "La fecha de inicio no puede ser posterior a hoy"
+    if v.year < 2000:
+        return "La fecha de inicio no puede ser anterior al año 2000"
+    return None
+
+
 class formularioEntrada(BaseModel):
-    descripcion: str = Field(min_length=0, max_length=200)
+    descripcion: str = Field(min_length=1, max_length=200)
     fechaInicio: date
     idPersona: int
     idCesfam: int
     idHospital: int
     idEspecialidad: int
     prioridad: str
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_no_vacia(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("La descripción no puede estar vacía")
+        return v
+
+    @field_validator("fechaInicio")
+    @classmethod
+    def validar_fecha_inicio(cls, v: date) -> date:
+        msg = error_fecha_inicio(v)
+        if msg:
+            raise ValueError(msg)
+        return v
 
 
 class accesoEntrada(BaseModel):
@@ -374,7 +438,7 @@ def login(datos: Login):
         raise
     except Exception as e:
         logger.exception("Error en /login")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor is not None:
             cursor.close()
@@ -389,9 +453,11 @@ def creaPersona(persona: personaEntrada):
     try:
         conexion = get_conexion()
         cursor = conexion.cursor(dictionary=True)
+        if not existe_id(cursor, "comuna", "idComuna", persona.idComuna):
+            raise HTTPException(status_code=422, detail="La comuna no existe")
         cursor.execute("SELECT idPersona FROM persona WHERE rut = %s", (persona.rut,))
         if cursor.fetchone():
-            return {"codigo": 0, "mensaje": "Ya existe un Usuario asignado a ese RUT"}
+            raise HTTPException(status_code=409, detail="Ya existe un Usuario asignado a ese RUT")
 
         query = """
             INSERT INTO persona
@@ -419,11 +485,13 @@ def creaPersona(persona: personaEntrada):
         conexion.commit()
         return {"codigo": 1, "mensaje": "Éxito para ingresar Persona y dar acceso de Usuario"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         if conexion:
             conexion.rollback()
         logger.exception("Error en /persona")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -451,7 +519,7 @@ def obtienePersonas():
         raise
     except Exception as e:
         logger.exception("Error en GET /persona")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -476,7 +544,7 @@ def obtieneRoles():
         raise
     except Exception as e:
         logger.exception("Error en GET /rol")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -506,6 +574,13 @@ def creaFormulario(
         )
         if cursor.fetchone() is None:
             raise HTTPException(status_code=422, detail="La especialidad no existe")
+        for tabla, columna, valor, nombre in (
+            ("persona", "idPersona", formulario.idPersona, "El paciente"),
+            ("cesfam", "idCesfam", formulario.idCesfam, "El CESFAM"),
+            ("hospital", "idHospital", formulario.idHospital, "El hospital"),
+        ):
+            if not existe_id(cursor, tabla, columna, valor):
+                raise HTTPException(status_code=422, detail=f"{nombre} no existe")
         query = """
             INSERT INTO formulario
                 (descripcion, fechaInicio, idPersona, idCesfam, idHospital, idEstado, prioridadClinica, idEspecialidad)
@@ -540,7 +615,7 @@ def creaFormulario(
         if conexion:
             conexion.rollback()
         logger.exception("Error en POST /formulario")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -595,12 +670,12 @@ def creaAcceso(acceso: accesoEntrada, _=Depends(requiere_rol(4))):
                 status_code=409,
                 detail="Ese acceso ya existe para esta persona con ese rol y centro."
             )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     except Exception as e:
         if conexion:
             conexion.rollback()
         logger.exception("Error en POST /acceso")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -625,7 +700,7 @@ def obtieneRegiones():
         raise
     except Exception as e:
         logger.exception("Error en GET /region")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -653,7 +728,7 @@ def obtieneEspecialidades():
         raise
     except Exception as e:
         logger.exception("Error en GET /especialidad")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -683,7 +758,7 @@ def obtieneComunas(region: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /comuna/{region}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -713,7 +788,7 @@ def obtieneHospitales(comuna: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /hospital/{comuna}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -743,7 +818,7 @@ def obtieneCesfams(comuna: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /cesfam/{comuna}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -785,7 +860,7 @@ def obtieneDatosContacto(persona: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /contactos/{persona}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -883,7 +958,7 @@ def actualizaDatosContacto(persona: int, datos: contactoActualiza):
         if conexion:
             conexion.rollback()
         logger.exception("Error en PATCH /contactos/{persona}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -957,7 +1032,7 @@ def comparaDatosPersona(
         raise
     except Exception as e:
         logger.exception("Error en GET /comparaDatos")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1029,7 +1104,7 @@ def obtieneFormularios(persona: int, cesfam: int, hospital: int, estado: int, pr
         raise
     except Exception as e:
         logger.exception("Error en GET /formulario/{...}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1140,7 +1215,7 @@ def filtraFormularios(
         raise
     except Exception as e:
         logger.exception("Error en GET /formulario/filtrar")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1209,7 +1284,7 @@ def obtieneAccesos(rol: int, persona: int, cesfam: int, hospital: int, _=Depends
         raise
     except Exception as e:
         logger.exception("Error en GET /Acceso/{...}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1249,11 +1324,11 @@ def eliminaAcceso(persona: int, rol: int, cesfam: int, hospital: int, _=Depends(
     except mysql.connector.Error as e:
         if conexion:
             conexion.rollback()
-        raise HTTPException(status_code=500, detail=f"Error de base de datos: {str(e)}")
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     except Exception as e:
         if conexion:
             conexion.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1432,7 +1507,7 @@ def obtienePerfil(idPersona: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /persona/{idPersona}/perfil")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1481,7 +1556,7 @@ def actualizaPerfil(idPersona: int, datos: perfilEdicion):
         if conexion:
             conexion.rollback()
         logger.exception("Error en PUT /persona/{idPersona}/perfil")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1544,7 +1619,7 @@ def subeDocumento(idFormulario: int, archivo: UploadFile = File(...)):
         if conexion:
             conexion.rollback()
         logger.exception("Error en POST /formulario/{idFormulario}/documentos")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1582,7 +1657,7 @@ def listaDocumentos(idFormulario: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /formulario/{idFormulario}/documentos")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1620,7 +1695,7 @@ def descargaDocumento(idDocumento: int):
         raise
     except Exception as e:
         logger.exception("Error en GET /documentos/{idDocumento}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         if cursor:
             cursor.close()
@@ -1759,7 +1834,7 @@ def conexion_db():
     except Exception as e:
         conexion.rollback()
         logger.exception("Error de base de datos")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=ERROR_INTERNO)
     finally:
         cursor.close()
         if conexion.is_connected():
@@ -2357,7 +2432,10 @@ def _inserta_registro_offline(conexion, cursor, r: RegistroOffline, usuario, ces
         if cursor.fetchone() is None:
             return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": f"{nombre} no existe"}
 
-    fecha = min(r.fechaInicio, date.today())
+    msg_fecha = error_fecha_inicio(r.fechaInicio)
+    if msg_fecha:
+        return {"uuidLocal": r.uuidLocal, "estado": "error", "detalle": msg_fecha}
+    fecha = r.fechaInicio
     try:
         cursor.execute(
             """
@@ -2400,7 +2478,7 @@ def sincronizaRegistros(
             except Exception as e:  # un registro con problemas no debe bloquear a los demás
                 conexion.rollback()
                 logger.exception("Error sincronizando %s", registro.uuidLocal)
-                res = {"uuidLocal": registro.uuidLocal, "estado": "error", "detalle": str(e)[:200]}
+                res = {"uuidLocal": registro.uuidLocal, "estado": "error", "detalle": "No se pudo guardar el registro"}
             resultados.append(res)
             if res["estado"] == "sincronizado" and not res.get("duplicado"):
                 background.add_task(notifica_cambio_estado, res["idFormulario"], ("paciente",))
