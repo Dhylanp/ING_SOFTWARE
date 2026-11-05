@@ -4,28 +4,18 @@
  *     avisa a la pantalla para que cambie el distintivo a "sincronizado".
  * La base IndexedDB debe coincidir con src/offline/almacen.js.
  */
-const CACHE = 'interconsultas-shell-v2';
+const CACHE = 'interconsultas-shell-v1';
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest'];
 const DB_NOMBRE = 'interconsultas-offline';
 const TAG_SYNC = 'sincronizar-interconsultas';
 
-// Guarda el app shell y todos los archivos compilados que cita index.html
-// (/assets/index-xxxx.css, /assets/index-xxxx.js ...). Sin esto el CSS no queda en
-// caché si la página se cargó antes de que el Service Worker tomara el control.
-async function precachear() {
-  const c = await caches.open(CACHE);
-  await c.addAll(SHELL);
-  try {
-    const html = await (await fetch('/index.html', { cache: 'reload' })).text();
-    const rutas = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
-    await c.addAll(rutas);
-  } catch (e) {
-    // sin red al instalar: queda el shell; el resto se guarda en la primera visita con conexión
-  }
-}
-
 self.addEventListener('install', (event) => {
-  event.waitUntil(precachear().then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(SHELL))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -69,7 +59,7 @@ self.addEventListener('fetch', (event) => {
           return resp;
         })
         .catch(() => enCache);
-      return enCache || red.then((r) => r || Response.error());
+      return enCache || red;
     })
   );
 });
