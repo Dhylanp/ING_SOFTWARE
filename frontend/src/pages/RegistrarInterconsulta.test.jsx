@@ -31,6 +31,12 @@ describe('RegistrarInterconsulta (HU19)', () => {
     await borrarAlmacenLocal()
   })
 
+  test('muestra el botón para volver al inicio (BUG-08)', async () => {
+    mockApi(catalogos)
+    renderPagina(<RegistrarInterconsulta />)
+    expect(await screen.findByRole('link', { name: /Volver al inicio/ })).toHaveAttribute('href', '/interconsultas')
+  })
+
   test('sin campos obligatorios no envía y avisa "Campos incompletos"', async () => {
     // Arrange
     const user = userEvent.setup()
@@ -155,5 +161,21 @@ describe('RegistrarInterconsulta (HU19)', () => {
     // Assert
     expect(campo).toHaveValue('12345678-5')
     expect(screen.getByText('Ana Pérez')).toBeInTheDocument()
+  })
+
+  test('conserva lo escrito si la página se recarga (BUG-07)', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    mockApi(catalogos)
+    const primera = renderPagina(<RegistrarInterconsulta />)
+    await screen.findByRole('button', { name: 'Guardar y emitir interconsulta' })
+    await user.type(primera.container.querySelector('textarea[name=descripcion]'), 'Dolor torácico')
+
+    // Act: se "recarga" la página
+    primera.unmount()
+    const segunda = renderPagina(<RegistrarInterconsulta />)
+
+    // Assert
+    expect(segunda.container.querySelector('textarea[name=descripcion]')).toHaveValue('Dolor torácico')
   })
 })
