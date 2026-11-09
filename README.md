@@ -49,7 +49,7 @@ Estados: `Registrada` → `Tramitada` → `En lista de espera` → `Agendada` �
 
 **Seguridad y roles**
 - Inicio de sesión con JWT y contraseñas con hash (bcrypt).
-- Control de acceso por rol: 1 administrativo CESFAM, 2 especialista dtor de roles (asigna roles a los usuarios).
+- Control de acceso por rol: 1 administrativo CESFAM, 2 especialista del hospital (Externo), 3 paciente y 4 gestor de roles (asigna roles a los usuarios).
 
 ## Arquitectura y tecnologías
 
@@ -125,19 +125,19 @@ y en DevTools > Network marcar Offline.
 | Documentos | `POST` y `GET /formulario/{id}/documentos`, `GET /documentos/{id}` |
 | Contacto | `GET` y `PATCH /contactos/{persona}`, `GET` y `PUT /perso
 | Revisión del especialista | `GET /especialista/bandeja`, `POST /formulario/{id}/revision` |
-| Devoluciones | `GET /formulario/{id}/devolucion`, `POST /formulario//devoluciones`, `POST /alertas/devoluciones/revisar` |
+| Devoluciones | `GET /formulario/{id}/devolucion`, `POST /formulario/{id}/reenviar`, `POST /alertas/devoluciones/revisar` |
 | Seguimiento | `GET /formulario/{id}/historial`, `POST /formulario/{id}/cita`, `POST /formulario/{id}/cierre`, `GET /formulario/{id}/notificaciones` |
 | Sin conexión | `POST /sincronizar` |
 
 ## Pruebas
 
 ```bash
-python -m pytest DATA/tests          # backend: 72 pruebas
-cd frontend && npm test              # frontend: 63 pruebas
+python -m pytest DATA/tests          # backend: 112 pruebas
+cd frontend && npm test              # frontend: 65 pruebas
 cd frontend && npm run lint
 ```
 
-Además, `docs/` incluye un script que prueba el flujo completo contra ba el modo sin conexión en Chrome.
+Además, `docs/` incluye un script que prueba el flujo completo contra una base MySQL y el modo sin conexión en Chrome.
 
 ## Despliegue
 

@@ -2,7 +2,7 @@ import re
 import unittest
 from pathlib import Path
 
-import main
+from DATA import main
 
 FUENTE = Path(main.__file__).read_text(encoding="utf8")
 
