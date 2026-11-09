@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth, getNombreRol } from '../context/AuthContext';
-import AlertaContador from '../components/AlertaContador';
 
 export default function Interconsultas() {
   const { usuario, tieneRol } = useAuth();

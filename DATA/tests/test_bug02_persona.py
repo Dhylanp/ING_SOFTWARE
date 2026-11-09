@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 from pydantic import ValidationError
-import main
+from DATA import main
 
 
 def base(**kw):
