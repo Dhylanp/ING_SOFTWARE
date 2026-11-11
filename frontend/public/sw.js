@@ -19,7 +19,7 @@ async function precachear() {
     const html = await (await fetch('/index.html', { cache: 'reload' })).text();
     const rutas = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
     await c.addAll(rutas);
-  } catch (e) {
+  } catch {
     // sin red al instalar: queda el shell; el resto se guarda en la primera visita con conexión
   }
 }

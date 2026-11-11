@@ -1,6 +1,6 @@
 import unittest
 from fastapi.testclient import TestClient
-import main
+from DATA import main
 
 CUERPO = dict(descripcion="x", fechaInicio="2026-01-01", idPersona=1, idCesfam=1,
               idHospital=1, idEspecialidad=1, prioridad="media")

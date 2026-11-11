@@ -168,8 +168,8 @@ const SignUp = () => {
 
     if (isNaN(diaNum) || isNaN(mesNum) || isNaN(anioNum)) return null;
 
-    const anioActual = new Date().getFullYear();
-    if (anioNum < 1900 || anioNum > anioActual) return null;
+    // Solo se valida el límite inferior; la fecha futura la valida esFechaFutura
+    if (anioNum < 1900) return null;
     if (mesNum < 1 || mesNum > 12) return null;
     if (diaNum < 1) return null;
 
