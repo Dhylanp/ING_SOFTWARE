@@ -228,7 +228,7 @@ CREATE TABLE `persona_correos` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---- Usuario administrador de roles ----
--- RUT 99999999-9 | Clave: GestorRoles123 (bcrypt $2b$12$, mismo formato que el resto de la tabla)
+-- RUT 99999999-9 | Clave inicial: ver Manual de Instalación (bcrypt $2b$12$, mismo formato que el resto de la tabla)
 -- Roles: 3 (Usuario) y 4 (Gestionador de Roles). idCesfam/idHospital = 0 (sin asignacion).
 INSERT INTO `persona` (`idPersona`,`rut`,`calle`,`dv`,`nombrePersona`,`clave`,`fechaNac`,`idComuna`) VALUES
 (17,99999999,'Sin direccion','9','Admin Roles','$2b$12$bx4rLcrkh2vRgeACAt4.8uEqm7hW8rXJTHWpGx7kEZMa7HFL0mmmG','2000-01-01',82);
