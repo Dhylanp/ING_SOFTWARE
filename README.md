@@ -8,16 +8,6 @@ Proyecto de Ingeniería de Software (PTEC105-8573, Universidad Andrés Bello).
 
 - Gabriel Hidalgo
 - Manuel Macchiavello
-# Gestión de Interconsultas CESFAM
-
-Sistema de gestión y trazabilidad de interconsultas entre atención priundaria (hospitales). Permite registrar, validar, dar seguimiento ysincronizar derivaciones médicas, incluso sin conexión a internet.
-
-Proyecto de Ingeniería de Software (PTEC105-8573, Universidad Andrés B
-
-## Integrantes
-
-- Gabriel Hidalgo
-- Manuel Macchiavello
 - Dhylan Pizarro
 
 ## Qué hace
@@ -63,9 +53,9 @@ Monolítico modular.
 | Autenticación | JWT |
 | Correo | SMTP |
 | Pruebas | pytest (backend), Vitest + React Testing Library (frontend) |
-| Despliegue | API en Railway (`Procfile`) |
+| Despliegue | API en Railway (`Procfile`), frontend en Vercel |
 
-La migración del esquema se aplica sola al arrancar la API (`AUTO_MIGRciones/001_sprint3.sql`).
+La migración del esquema (`DATA/migraciones/001_sprint3.sql`) se aplica sola al arrancar la API, salvo que `AUTO_MIGRAR=0`.
 
 ## Organización del repositorio
 
@@ -94,7 +84,7 @@ El código no lee archivos `.env`: las variables van como variables de entorno d
 | `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD` | Conexión a MySQL (Railway las inyecta solas) |
 | `JWT_SECRET` | Firma de los tokens |
 | `AUTO_MIGRAR` | `1` aplica la migración al arrancar, `0` la desactiva |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`,ío real de correos |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `SMTP_SSL` | Configuración del servidor SMTP para el envío real de correos |
 | `CESFAM_CORREO_DEFAULT` | Correo de respaldo cuando un CESFAM no tiene uno registrado |
 
 Si `SMTP_HOST` está vacío los correos se simulan: no salen, pero quedan registrados en la tabla `notificacion_correo`.
@@ -107,7 +97,7 @@ npm install
 npm run dev
 ```
 
-El Service Worker solo se registra en la versión compilada. Para proba
+El Service Worker solo se registra en la versión compilada. Para probarlo localmente, compila y sirve la build:
 
 ```bash
 npm run build && npm run preview
@@ -123,7 +113,7 @@ y en DevTools > Network marcar Offline.
 | Catálogos | `GET /region`, `/comuna/{region}`, `/hospital/{comuna}`, `/cesfam/{comuna}`, `/especialidad` |
 | Interconsultas | `POST /formulario`, `GET /formulario/{id}`, `GET /formulario/filtrar`, `PATCH /formulario/{id}/administrativo` |
 | Documentos | `POST` y `GET /formulario/{id}/documentos`, `GET /documentos/{id}` |
-| Contacto | `GET` y `PATCH /contactos/{persona}`, `GET` y `PUT /perso
+| Contacto | `GET` y `PATCH /contactos/{persona}`, `GET` y `PUT /persona/{idPersona}/perfil` |
 | Revisión del especialista | `GET /especialista/bandeja`, `POST /formulario/{id}/revision` |
 | Devoluciones | `GET /formulario/{id}/devolucion`, `POST /formulario/{id}/reenviar`, `POST /alertas/devoluciones/revisar` |
 | Seguimiento | `GET /formulario/{id}/historial`, `POST /formulario/{id}/cita`, `POST /formulario/{id}/cierre`, `GET /formulario/{id}/notificaciones` |
@@ -148,6 +138,8 @@ web: uvicorn DATA.main:app --host 0.0.0.0 --port $PORT
 ```
 
 Las variables de MySQL las inyecta Railway. Las de SMTP se configuran en el panel del servicio. El envío real de correos se verificó funcionando en Railway.
+
+El frontend se despliega en Vercel: `https://ing-software-two.vercel.app/interconsultas`.
 
 ## Seguimiento del proyecto
 
